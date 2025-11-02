@@ -1,4 +1,5 @@
 use crate::point::Point;
+use log_once::debug_once;
 use nalgebra::{Matrix4, Vector4};
 use polars::prelude::*;
 use std::collections::HashMap;
@@ -146,6 +147,17 @@ impl TablePointCloud {
                 .into(),
             ));
         }
+        // if attribute already exists, raise an error
+        if self
+            .data
+            .get_column_names()
+            .iter()
+            .any(|s| s.as_str() == name)
+        {
+            return Err(PolarsError::Duplicate(
+                format!("Attribute '{}' already exists", name).into(),
+            ));
+        }
 
         let series = Series::new(name.into(), values);
         self.data.with_column(series)?;
@@ -204,17 +216,56 @@ impl TablePointCloud {
 
         let mut attributes = HashMap::new();
         for col_name in self.data.get_column_names() {
-            if col_name != "x" && col_name != "y" && col_name != "z" {
-                if let Ok(series) = self.data.column(col_name) {
-                    if let Ok(f64_series) = series.f64() {
-                        if let Some(value) = f64_series.get(index) {
-                            if !value.is_nan() {
-                                attributes.insert(col_name.to_string(), value);
-                            }
-                        }
-                    }
-                }
+            // Skip coordinate columns
+            if ["x", "y", "z"].contains(&col_name.as_str()) {
+                debug_once!("Skipping coordinate column '{}'", col_name);
+                continue;
             }
+            // Get the column as series
+            let series = match self.data.column(col_name) {
+                Ok(series) => series,
+                Err(_) => {
+                    debug_once!("Column '{}' could not be accessed, skipping", col_name);
+                    continue;
+                }
+            };
+
+            // Convert to f64 series
+            let f64_series = match series.f64() {
+                Ok(series) => series,
+                Err(_) => {
+                    debug_once!(
+                        "Column '{}' could not be converted to f64, skipping",
+                        col_name
+                    );
+                    continue;
+                }
+            };
+
+            // Get value at index
+            let value = match f64_series.get(index) {
+                Some(value) => value,
+                None => {
+                    debug_once!(
+                        "Attribute '{}' at index {} is None, skipping",
+                        col_name,
+                        index
+                    );
+                    continue;
+                }
+            };
+
+            // Skip NaN values
+            if value.is_nan() {
+                debug_once!(
+                    "Attribute '{}' at index {} is NaN, skipping",
+                    col_name,
+                    index
+                );
+                continue;
+            }
+
+            attributes.insert(col_name.to_string(), value);
         }
 
         Ok(Point {

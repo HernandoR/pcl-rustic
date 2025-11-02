@@ -10,3 +10,4 @@ crate-type = ["rlib"]
 [dependencies]
 polars = "0.51"
 nalgebra = "0.33"
+log-once = "0.4.1"
