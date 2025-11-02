@@ -1472,6 +1472,7 @@ dependencies = [
 name = "pcl_rustic_pybind"
 version = "0.1.0"
 dependencies = [
+ "nalgebra",
  "pcl_rustic_core",
  "pcl_rustic_downsample",
  "pcl_rustic_io",
