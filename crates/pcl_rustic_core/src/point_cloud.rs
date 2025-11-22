@@ -1,18 +1,59 @@
+//! Point cloud data structure module.
+//!
+//! This module provides the [`TablePointCloud`] struct, a columnar point cloud
+//! implementation using polars DataFrame for efficient storage and operations.
+
 use crate::point::Point;
 use log_once::debug_once;
 use nalgebra::{Matrix4, Vector4};
 use polars::prelude::*;
 use std::collections::HashMap;
 
-/// A table-based point cloud using polars DataFrame
-/// Each attribute is stored as a column
+/// A table-based point cloud using polars DataFrame.
+///
+/// `TablePointCloud` stores point cloud data in a columnar format where each
+/// attribute (including x, y, z coordinates) is stored as a separate column.
+/// This provides efficient memory usage and fast vectorized operations.
+///
+/// All point clouds are assumed to be 3D and must have x, y, z columns.
+///
+/// # Examples
+///
+/// ```
+/// use pcl_rustic_core::{Point, TablePointCloud};
+///
+/// // Create from coordinate vectors
+/// let cloud = TablePointCloud::from_xyz(
+///     vec![1.0, 2.0, 3.0],
+///     vec![4.0, 5.0, 6.0],
+///     vec![7.0, 8.0, 9.0]
+/// ).unwrap();
+///
+/// assert_eq!(cloud.len(), 3);
+/// ```
 #[derive(Debug, Clone)]
 pub struct TablePointCloud {
     data: DataFrame,
 }
 
 impl TablePointCloud {
-    /// Create a new empty TablePointCloud
+    /// Create a new empty TablePointCloud.
+    ///
+    /// The cloud will have x, y, z columns but no points.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if DataFrame creation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::new().unwrap();
+    /// assert!(cloud.is_empty());
+    /// assert_eq!(cloud.len(), 0);
+    /// ```
     pub fn new() -> Result<Self, PolarsError> {
         let x: Vec<f64> = vec![];
         let y: Vec<f64> = vec![];
@@ -27,7 +68,35 @@ impl TablePointCloud {
         Ok(TablePointCloud { data: df })
     }
 
-    /// Create a TablePointCloud from vectors of coordinates
+    /// Create a TablePointCloud from vectors of coordinates.
+    ///
+    /// All three coordinate vectors must have the same length.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - Vector of x coordinates
+    /// * `y` - Vector of y coordinates
+    /// * `z` - Vector of z coordinates
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if:
+    /// - The coordinate vectors have different lengths
+    /// - DataFrame creation fails
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0],
+    ///     vec![3.0, 4.0],
+    ///     vec![5.0, 6.0]
+    /// ).unwrap();
+    ///
+    /// assert_eq!(cloud.len(), 2);
+    /// ```
     pub fn from_xyz(x: Vec<f64>, y: Vec<f64>, z: Vec<f64>) -> Result<Self, PolarsError> {
         if x.len() != y.len() || y.len() != z.len() {
             return Err(PolarsError::ShapeMismatch(
@@ -44,7 +113,36 @@ impl TablePointCloud {
         Ok(TablePointCloud { data: df })
     }
 
-    /// Create a TablePointCloud from a vector of Points
+    /// Create a TablePointCloud from a vector of Points.
+    ///
+    /// Attributes from the points are automatically extracted and stored as columns.
+    /// If points have different attributes, missing values are filled with NaN.
+    ///
+    /// # Arguments
+    ///
+    /// * `points` - Vector of Point objects
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if DataFrame creation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::{Point, TablePointCloud};
+    /// use std::collections::HashMap;
+    ///
+    /// let mut attrs = HashMap::new();
+    /// attrs.insert("intensity".to_string(), 100.0);
+    ///
+    /// let points = vec![
+    ///     Point::with_attributes(1.0, 0.0, 0.0, attrs),
+    ///     Point::new(0.0, 1.0, 0.0),
+    /// ];
+    ///
+    /// let cloud = TablePointCloud::from_points(points).unwrap();
+    /// assert_eq!(cloud.len(), 2);
+    /// ```
     pub fn from_points(points: Vec<Point<f64>>) -> Result<Self, PolarsError> {
         if points.is_empty() {
             return Self::new();
@@ -81,9 +179,43 @@ impl TablePointCloud {
         Ok(TablePointCloud { data: df })
     }
 
-    /// Transform the point cloud using a 4x4 homogeneous transformation matrix
-    /// Performs right multiplication: P_b = T_a2b @ P_a
-    /// where each point is represented in homogeneous coordinates [x, y, z, 1]
+    /// Transform the point cloud using a 4x4 homogeneous transformation matrix.
+    ///
+    /// Performs right multiplication: P_b = T_a2b @ P_a, where each point is
+    /// represented in homogeneous coordinates [x, y, z, 1].
+    ///
+    /// Attribute columns are preserved during transformation.
+    ///
+    /// # Arguments
+    ///
+    /// * `transform` - A 4x4 transformation matrix
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if the transformation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    /// use nalgebra::Matrix4;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 0.0],
+    ///     vec![0.0, 1.0],
+    ///     vec![0.0, 0.0]
+    /// ).unwrap();
+    ///
+    /// // Translation matrix: move by (10, 20, 30)
+    /// let mut transform = Matrix4::identity();
+    /// transform[(0, 3)] = 10.0;
+    /// transform[(1, 3)] = 20.0;
+    /// transform[(2, 3)] = 30.0;
+    ///
+    /// let transformed = cloud.transform(&transform).unwrap();
+    /// let x_coords = transformed.x().unwrap();
+    /// assert_eq!(x_coords[0], 11.0);
+    /// ```
     pub fn transform(&self, transform: &Matrix4<f64>) -> Result<Self, PolarsError> {
         let x_values = self.x()?;
         let y_values = self.y()?;
@@ -125,17 +257,67 @@ impl TablePointCloud {
         Ok(new_cloud)
     }
 
-    /// Get the number of points in the cloud
+    /// Get the number of points in the cloud.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0, 3.0],
+    ///     vec![4.0, 5.0, 6.0],
+    ///     vec![7.0, 8.0, 9.0]
+    /// ).unwrap();
+    ///
+    /// assert_eq!(cloud.len(), 3);
+    /// ```
     pub fn len(&self) -> usize {
         self.data.height()
     }
 
-    /// Check if the point cloud is empty
+    /// Check if the point cloud is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::new().unwrap();
+    /// assert!(cloud.is_empty());
+    /// ```
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Add a column (attribute) to the point cloud
+    /// Add an attribute column to the point cloud.
+    ///
+    /// The attribute values must have the same length as the number of points.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the attribute
+    /// * `values` - Vector of attribute values
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if:
+    /// - The values vector length doesn't match the number of points
+    /// - An attribute with the same name already exists
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let mut cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0],
+    ///     vec![3.0, 4.0],
+    ///     vec![5.0, 6.0]
+    /// ).unwrap();
+    ///
+    /// cloud.add_attribute("intensity", vec![100.0, 200.0]).unwrap();
+    /// ```
     pub fn add_attribute(&mut self, name: &str, values: Vec<f64>) -> Result<(), PolarsError> {
         if values.len() != self.len() {
             return Err(PolarsError::ShapeMismatch(
@@ -164,12 +346,48 @@ impl TablePointCloud {
         Ok(())
     }
 
-    /// Get a reference to the underlying DataFrame
+    /// Get a reference to the underlying DataFrame.
+    ///
+    /// This allows direct access to polars DataFrame functionality.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0],
+    ///     vec![3.0, 4.0],
+    ///     vec![5.0, 6.0]
+    /// ).unwrap();
+    ///
+    /// let df = cloud.data();
+    /// assert_eq!(df.height(), 2);
+    /// ```
     pub fn data(&self) -> &DataFrame {
         &self.data
     }
 
-    /// Get x coordinates as a vector
+    /// Get all x coordinates as a vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if the x column cannot be accessed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0, 3.0],
+    ///     vec![4.0, 5.0, 6.0],
+    ///     vec![7.0, 8.0, 9.0]
+    /// ).unwrap();
+    ///
+    /// let x_coords = cloud.x().unwrap();
+    /// assert_eq!(x_coords, vec![1.0, 2.0, 3.0]);
+    /// ```
     pub fn x(&self) -> Result<Vec<f64>, PolarsError> {
         let series = self.data.column("x")?;
         Ok(series
@@ -180,7 +398,26 @@ impl TablePointCloud {
             .collect())
     }
 
-    /// Get y coordinates as a vector
+    /// Get all y coordinates as a vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if the y column cannot be accessed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0, 3.0],
+    ///     vec![4.0, 5.0, 6.0],
+    ///     vec![7.0, 8.0, 9.0]
+    /// ).unwrap();
+    ///
+    /// let y_coords = cloud.y().unwrap();
+    /// assert_eq!(y_coords, vec![4.0, 5.0, 6.0]);
+    /// ```
     pub fn y(&self) -> Result<Vec<f64>, PolarsError> {
         let series = self.data.column("y")?;
         Ok(series
@@ -191,7 +428,26 @@ impl TablePointCloud {
             .collect())
     }
 
-    /// Get z coordinates as a vector
+    /// Get all z coordinates as a vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if the z column cannot be accessed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0, 3.0],
+    ///     vec![4.0, 5.0, 6.0],
+    ///     vec![7.0, 8.0, 9.0]
+    /// ).unwrap();
+    ///
+    /// let z_coords = cloud.z().unwrap();
+    /// assert_eq!(z_coords, vec![7.0, 8.0, 9.0]);
+    /// ```
     pub fn z(&self) -> Result<Vec<f64>, PolarsError> {
         let series = self.data.column("z")?;
         Ok(series
@@ -202,7 +458,35 @@ impl TablePointCloud {
             .collect())
     }
 
-    /// Get a point at a specific index
+    /// Get a Point at a specific index.
+    ///
+    /// Returns the point with all its attributes. NaN attribute values are excluded.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Index of the point to retrieve (0-based)
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if the index is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::TablePointCloud;
+    ///
+    /// let mut cloud = TablePointCloud::from_xyz(
+    ///     vec![1.0, 2.0],
+    ///     vec![3.0, 4.0],
+    ///     vec![5.0, 6.0]
+    /// ).unwrap();
+    ///
+    /// cloud.add_attribute("intensity", vec![100.0, 200.0]).unwrap();
+    ///
+    /// let point = cloud.get_point(0).unwrap();
+    /// assert_eq!(point.x, 1.0);
+    /// assert_eq!(point.get_attribute("intensity"), Some(100.0));
+    /// ```
     pub fn get_point(&self, index: usize) -> Result<Point<f64>, PolarsError> {
         if index >= self.len() {
             return Err(PolarsError::OutOfBounds(
@@ -276,7 +560,30 @@ impl TablePointCloud {
         })
     }
 
-    /// Convert to a vector of Points
+    /// Convert the point cloud to a vector of Points.
+    ///
+    /// All points are extracted with their attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `PolarsError` if any point cannot be retrieved.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use pcl_rustic_core::{Point, TablePointCloud};
+    ///
+    /// let points = vec![
+    ///     Point::new(1.0, 2.0, 3.0),
+    ///     Point::new(4.0, 5.0, 6.0),
+    /// ];
+    ///
+    /// let cloud = TablePointCloud::from_points(points).unwrap();
+    /// let recovered = cloud.to_points().unwrap();
+    ///
+    /// assert_eq!(recovered.len(), 2);
+    /// assert_eq!(recovered[0].x, 1.0);
+    /// ```
     pub fn to_points(&self) -> Result<Vec<Point<f64>>, PolarsError> {
         let mut points = Vec::with_capacity(self.len());
         for i in 0..self.len() {
@@ -287,6 +594,11 @@ impl TablePointCloud {
 }
 
 impl Default for TablePointCloud {
+    /// Create a default empty TablePointCloud.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the empty cloud cannot be created.
     fn default() -> Self {
         Self::new().expect("Failed to create default TablePointCloud")
     }
