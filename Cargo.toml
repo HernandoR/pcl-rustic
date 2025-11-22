@@ -5,5 +5,5 @@ members = [
 	"crates/pcl_rustic_io",
 	"crates/pcl_rustic_downsample",
 ]
-
+resolver = "2"
 # Legacy single-crate settings have been moved to Cargo.package.toml for reference.

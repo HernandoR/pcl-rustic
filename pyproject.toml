@@ -26,3 +26,10 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "crates/**/*.rs" }, { file =
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
+
+[dependency-groups]
+docs = [
+    "myst-parser>=4.0.1",
+    "sphinx>=8.2.3",
+    "sphinx-rtd-theme>=3.0.2",
+]
