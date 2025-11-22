@@ -21,6 +21,7 @@ jobs:
         with:
           # Install a specific version of uv.
           version: "0.9.10"
+          enable-cache: true
 
       - name: Install dependencies
         run: |
@@ -31,6 +32,8 @@ jobs:
           source .venv/bin/activate
           cd docs
           make html
+      - name: Minimize uv cache
+        run: uv cache prune --ci
 
       - name: Deploy to GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
