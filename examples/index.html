@@ -1,0 +1,296 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Examples &mdash; pcl-rustic 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="API Reference" href="../api/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            pcl-rustic
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#point-creation-and-manipulation">Point Creation and Manipulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#point-cloud-creation">Point Cloud Creation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#from-coordinate-lists">From Coordinate Lists</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#from-points">From Points</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#accessing-point-cloud-data">Accessing Point Cloud Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#managing-attributes">Managing Attributes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#spatial-transformations">Spatial Transformations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#translation">Translation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#rotation">Rotation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#combined-transformation">Combined Transformation</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">pcl-rustic</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Examples</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/examples/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h1>
+<section id="point-creation-and-manipulation">
+<h2>Point Creation and Manipulation<a class="headerlink" href="#point-creation-and-manipulation" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="c1"># Create a simple point</span>
+<span class="n">point</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">Point</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Point coordinates: x=</span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">x</span><span class="si">}</span><span class="s2">, y=</span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">y</span><span class="si">}</span><span class="s2">, z=</span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">z</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+<span class="c1"># Create a point with attributes</span>
+<span class="n">point_with_attrs</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">Point</span><span class="p">(</span><span class="mf">4.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">,</span> <span class="p">{</span>
+    <span class="s2">&quot;intensity&quot;</span><span class="p">:</span> <span class="mf">255.0</span><span class="p">,</span>
+    <span class="s2">&quot;red&quot;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">,</span>
+    <span class="s2">&quot;green&quot;</span><span class="p">:</span> <span class="mf">150.0</span>
+<span class="p">})</span>
+
+<span class="c1"># Modify attributes</span>
+<span class="n">point</span><span class="o">.</span><span class="n">set_attribute</span><span class="p">(</span><span class="s2">&quot;intensity&quot;</span><span class="p">,</span> <span class="mf">200.0</span><span class="p">)</span>
+<span class="n">intensity</span> <span class="o">=</span> <span class="n">point</span><span class="o">.</span><span class="n">get_attribute</span><span class="p">(</span><span class="s2">&quot;intensity&quot;</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Intensity: </span><span class="si">{</span><span class="n">intensity</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="point-cloud-creation">
+<h2>Point Cloud Creation<a class="headerlink" href="#point-cloud-creation" title="Link to this heading"></a></h2>
+<section id="from-coordinate-lists">
+<h3>From Coordinate Lists<a class="headerlink" href="#from-coordinate-lists" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="c1"># Create from separate coordinate lists</span>
+<span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">]</span>
+<span class="n">y</span> <span class="o">=</span> <span class="p">[</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">50.0</span><span class="p">]</span>
+<span class="n">z</span> <span class="o">=</span> <span class="p">[</span><span class="mf">100.0</span><span class="p">,</span> <span class="mf">200.0</span><span class="p">,</span> <span class="mf">300.0</span><span class="p">,</span> <span class="mf">400.0</span><span class="p">,</span> <span class="mf">500.0</span><span class="p">]</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_xyz</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cloud has </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">cloud</span><span class="p">)</span><span class="si">}</span><span class="s2"> points&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="from-points">
+<h3>From Points<a class="headerlink" href="#from-points" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="c1"># Create from a list of Point objects</span>
+<span class="n">points</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">Point</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;intensity&quot;</span><span class="p">:</span> <span class="mf">100.0</span><span class="p">}),</span>
+    <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">Point</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;intensity&quot;</span><span class="p">:</span> <span class="mf">200.0</span><span class="p">}),</span>
+    <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">Point</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="p">{</span><span class="s2">&quot;intensity&quot;</span><span class="p">:</span> <span class="mf">300.0</span><span class="p">}),</span>
+<span class="p">]</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_points</span><span class="p">(</span><span class="n">points</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="accessing-point-cloud-data">
+<h2>Accessing Point Cloud Data<a class="headerlink" href="#accessing-point-cloud-data" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_xyz</span><span class="p">(</span>
+    <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">4.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">7.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">,</span> <span class="mf">9.0</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># Get coordinate lists</span>
+<span class="n">x_coords</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">x</span><span class="p">()</span>
+<span class="n">y_coords</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">y</span><span class="p">()</span>
+<span class="n">z_coords</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">z</span><span class="p">()</span>
+
+<span class="c1"># Get individual points</span>
+<span class="n">point</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">get_point</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;First point: (</span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">x</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">y</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">z</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+<span class="c1"># Convert to list of points</span>
+<span class="n">all_points</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">to_points</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="managing-attributes">
+<h2>Managing Attributes<a class="headerlink" href="#managing-attributes" title="Link to this heading"></a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_xyz</span><span class="p">(</span>
+    <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">3.0</span><span class="p">,</span> <span class="mf">4.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">5.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># Add an attribute column</span>
+<span class="n">cloud</span><span class="o">.</span><span class="n">add_attribute</span><span class="p">(</span><span class="s2">&quot;intensity&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mf">100.0</span><span class="p">,</span> <span class="mf">200.0</span><span class="p">])</span>
+
+<span class="c1"># Retrieve point with attributes</span>
+<span class="n">point</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">get_point</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Intensity: </span><span class="si">{</span><span class="n">point</span><span class="o">.</span><span class="n">get_attribute</span><span class="p">(</span><span class="s1">&#39;intensity&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="spatial-transformations">
+<h2>Spatial Transformations<a class="headerlink" href="#spatial-transformations" title="Link to this heading"></a></h2>
+<section id="translation">
+<h3>Translation<a class="headerlink" href="#translation" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_xyz</span><span class="p">(</span>
+    <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># Translation matrix (translate by 10, 20, 30)</span>
+<span class="c1"># Matrix format: row-major order [m00, m01, m02, m03, m10, m11, m12, m13, ...]</span>
+<span class="n">translation</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span>
+<span class="p">]</span>
+
+<span class="n">transformed</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">translation</span><span class="p">)</span>
+
+<span class="c1"># Check results</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">transformed</span><span class="p">)):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">transformed</span><span class="o">.</span><span class="n">get_point</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Point </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">: (</span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">x</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">y</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">z</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="rotation">
+<h3>Rotation<a class="headerlink" href="#rotation" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_xyz</span><span class="p">(</span>
+    <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+    <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># 90-degree rotation around Z-axis</span>
+<span class="n">rotation</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="mf">1.0</span><span class="p">,</span>  <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span>  <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span>  <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span>
+<span class="p">]</span>
+
+<span class="n">rotated</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">rotation</span><span class="p">)</span>
+
+<span class="c1"># Points are now rotated</span>
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">rotated</span><span class="p">)):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">rotated</span><span class="o">.</span><span class="n">get_point</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Point </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">: (</span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">x</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">y</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">p</span><span class="o">.</span><span class="n">z</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="combined-transformation">
+<h3>Combined Transformation<a class="headerlink" href="#combined-transformation" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pcl_rustic</span>
+
+<span class="c1"># You can combine rotation and translation in a single matrix</span>
+<span class="n">combined</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">,</span>  <span class="c1"># Rotate and translate</span>
+    <span class="mf">1.0</span><span class="p">,</span>  <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span>  <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span>
+    <span class="mf">0.0</span><span class="p">,</span>  <span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span>  <span class="mf">1.0</span>
+<span class="p">]</span>
+
+<span class="n">cloud</span> <span class="o">=</span> <span class="n">pcl_rustic</span><span class="o">.</span><span class="n">TablePointCloud</span><span class="o">.</span><span class="n">from_xyz</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+<span class="n">transformed</span> <span class="o">=</span> <span class="n">cloud</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">combined</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../api/index.html" class="btn btn-neutral float-left" title="API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, pcl-rustic contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
