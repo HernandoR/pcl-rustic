@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# Editors
+*~
+.*~
+*.swp
+
+# Rust and Cargo
+/target
+**/*.rs.bk
+target/
+
+**/*.so

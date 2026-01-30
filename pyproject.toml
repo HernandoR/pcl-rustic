@@ -1,0 +1,22 @@
+[project]
+name = "pcl-rustic"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "liuzhen19", email = "liuzhen19@xiaomi.com" }
+]
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.maturin]
+module-name = "pcl_rustic._core"
+python-packages = ["pcl_rustic"]
+python-source = "src"
+
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
