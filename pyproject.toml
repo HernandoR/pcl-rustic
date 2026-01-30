@@ -1,18 +1,19 @@
 [project]
 name = "pcl-rustic"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "高性能Python点云运算库 - 基于Rust burn张量的批量运算"
+readme = "ai_doc/README.md"
 authors = [
     { name = "liuzhen19", email = "liuzhen19@xiaomi.com" }
 ]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["numpy>=1.20.0"]
 
 [tool.maturin]
 module-name = "pcl_rustic._core"
 python-packages = ["pcl_rustic"]
 python-source = "src"
+features = ["pyo3/extension-module"]
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
@@ -20,3 +21,18 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "C
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
