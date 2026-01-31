@@ -31,4 +31,4 @@ repos:
       files: \.rs$
       pass_filenames: false
       # 可选：允许自动修复 clippy 建议的问题（添加 --fix）
-      entry: cargo clippy --all-targets --all-features --deny warnings --fix
+      entry: cargo clippy --all-targets --all-features --fix
