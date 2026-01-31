@@ -1210,9 +1210,9 @@ dependencies = [
 
 [[package]]
 name = "bytemuck"
-version = "1.24.0"
+version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fbdf580320f38b612e485521afda1ee26d10cc9884efaaa750d383e13e3c5f4"
+checksum = "c8efb64bd706a16a1bdde310ae86b351e4d21550d98d056f22f8a7f7a2183fec"
 dependencies = [
  "bytemuck_derive",
 ]
@@ -3462,7 +3462,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -7064,9 +7064,9 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tracel-llvm"
-version = "20.1.4-6"
+version = "20.1.4-7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e35a47ae632d2e79a905d8edfaa95bc3fbcc11ed8fcab2591db57decd9f61f1"
+checksum = "982535db9eb1a30ac0f2c50239a0eec3e5cf50993a88e92b04747bd2f4d365b2"
 dependencies = [
  "tracel-mlir-rs",
  "tracel-mlir-sys",
@@ -7074,9 +7074,9 @@ dependencies = [
 
 [[package]]
 name = "tracel-llvm-bundler"
-version = "20.1.4-6"
+version = "20.1.4-7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71d48eaa6cab9e2b215328791e5e5e1484dc8bba154834493601783fba59d3fe"
+checksum = "3c75b8e477cb8d49d907afab029ca74d48459f5b88c27bdb4c6cd6acb5e61977"
 dependencies = [
  "anyhow",
  "bytes",
@@ -7094,9 +7094,9 @@ dependencies = [
 
 [[package]]
 name = "tracel-mlir-rs"
-version = "20.1.4-6"
+version = "20.1.4-7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f451ed4fd027e73a35abd35413aa27e39c8dc23603aab4428c3e272b166bb7d"
+checksum = "77a478a35efd68d0ba73f747adfb7923b121c64e7f5be9cd8364ca1dcb772d5c"
 dependencies = [
  "tracel-mlir-rs-macros",
  "tracel-mlir-sys",
@@ -7104,9 +7104,9 @@ dependencies = [
 
 [[package]]
 name = "tracel-mlir-rs-macros"
-version = "20.1.4-6"
+version = "20.1.4-7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b525a2eca2e67be29494e05ae0205286b61567715c769c31eb805410ea66566c"
+checksum = "7a94f36868c3b10b1825945223d99d106c73f4d249f063caa4651deeb9379344"
 dependencies = [
  "comrak",
  "convert_case 0.8.0",
@@ -7121,18 +7121,18 @@ dependencies = [
 
 [[package]]
 name = "tracel-mlir-sys"
-version = "20.1.4-6"
+version = "20.1.4-7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bdc8d6e648105d1807f94a7fe74b2f814de6f024dcd085aa00873dca638ab4d"
+checksum = "02f26d31af0c225a6d2e3d65d012fd6de848c9fc776897b152ee83b7d1bd15c4"
 dependencies = [
  "tracel-llvm-bundler",
 ]
 
 [[package]]
 name = "tracel-tblgen-rs"
-version = "20.1.4-6"
+version = "20.1.4-7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f8d06d0dc95d1caab0cc83b891ee37a7b5171e95a657a545a4045941450a2c0"
+checksum = "00d2581070380418ccc33b500f3739e4d4869421fdb477fcea51ff97c6253a52"
 dependencies = [
  "bindgen",
  "cc",
@@ -7852,6 +7852,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-core"
+version = "0.62.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
+dependencies = [
+ "windows-implement 0.60.2",
+ "windows-interface 0.59.3",
+ "windows-link 0.2.1",
+ "windows-result 0.4.1",
+ "windows-strings 0.5.1",
+]
+
+[[package]]
 name = "windows-future"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7978,6 +7991,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-result"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
+dependencies = [
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "windows-strings"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7994,6 +8016,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
+]
+
+[[package]]
+name = "windows-strings"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
+dependencies = [
+ "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -8256,18 +8287,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.36"
+version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dafd85c832c1b68bbb4ec0c72c7f6f4fc5179627d2bc7c26b30e4c0cc11e76cc"
+checksum = "7456cf00f0685ad319c5b1693f291a650eaf345e941d082fc4e03df8a03996ac"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.36"
+version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cb7e4e8436d9db52fbd6625dbf2f45243ab84994a72882ec8227b99e72b439a"
+checksum = "1328722bbf2115db7e19d69ebcc15e795719e2d66b60827c6a69a117365e37a0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8374,9 +8405,9 @@ checksum = "40990edd51aae2c2b6907af74ffb635029d5788228222c4bb811e9351c0caad3"
 
 [[package]]
 name = "zmij"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02aae0f83f69aafc94776e879363e9771d7ecbffe2c7fbb6c14c5e00dfe88439"
+checksum = "1966f8ac2c1f76987d69a74d0e0f929241c10e78136434e3be70ff7f58f64214"
 
 [[package]]
 name = "zstd"
