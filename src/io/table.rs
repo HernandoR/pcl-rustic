@@ -6,7 +6,7 @@ use polars::prelude::*;
 use std::fs::File;
 
 #[derive(Clone, Debug)]
-pub struct TableColumns {
+pub struct TableColumnNames {
     pub x: String,
     pub y: String,
     pub z: String,
@@ -16,7 +16,7 @@ pub struct TableColumns {
     pub rgb_b: Option<String>,
 }
 
-impl Default for TableColumns {
+impl Default for TableColumnNames {
     fn default() -> Self {
         Self {
             x: "x".to_string(),
@@ -30,7 +30,7 @@ impl Default for TableColumns {
     }
 }
 
-impl TableColumns {
+impl TableColumnNames {
     pub fn resolve(
         x: Option<String>,
         y: Option<String>,
@@ -40,7 +40,7 @@ impl TableColumns {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> Self {
-        let mut cols = TableColumns::default();
+        let mut cols = TableColumnNames::default();
         if let Some(v) = x {
             cols.x = v;
         }
@@ -67,7 +67,7 @@ impl TableColumns {
 }
 
 impl HighPerformancePointCloud {
-    pub fn from_table_csv(path: &str, delimiter: u8, columns: TableColumns) -> Result<Self> {
+    pub fn from_table_csv(path: &str, delimiter: u8, columns: TableColumnNames) -> Result<Self> {
         let df = CsvReadOptions::default()
             .with_has_header(true)
             .map_parse_options(|opts| opts.with_separator(delimiter))
@@ -78,7 +78,7 @@ impl HighPerformancePointCloud {
         from_dataframe(df, columns)
     }
 
-    pub fn from_table_parquet(path: &str, columns: TableColumns) -> Result<Self> {
+    pub fn from_table_parquet(path: &str, columns: TableColumnNames) -> Result<Self> {
         let file = File::open(path).map_err(PointCloudError::IoError)?;
         let df = ParquetReader::new(file)
             .finish()
@@ -86,7 +86,7 @@ impl HighPerformancePointCloud {
         from_dataframe(df, columns)
     }
 
-    pub fn to_table_csv(&self, path: &str, delimiter: u8, columns: TableColumns) -> Result<()> {
+    pub fn to_table_csv(&self, path: &str, delimiter: u8, columns: TableColumnNames) -> Result<()> {
         let mut df = to_dataframe(self, columns)?;
         let file = File::create(path).map_err(PointCloudError::IoError)?;
         CsvWriter::new(file)
@@ -97,7 +97,7 @@ impl HighPerformancePointCloud {
         Ok(())
     }
 
-    pub fn to_table_parquet(&self, path: &str, columns: TableColumns) -> Result<()> {
+    pub fn to_table_parquet(&self, path: &str, columns: TableColumnNames) -> Result<()> {
         let mut df = to_dataframe(self, columns)?;
         let file = File::create(path).map_err(PointCloudError::IoError)?;
         ParquetWriter::new(file)
@@ -107,7 +107,7 @@ impl HighPerformancePointCloud {
     }
 }
 
-fn from_dataframe(df: DataFrame, columns: TableColumns) -> Result<HighPerformancePointCloud> {
+fn from_dataframe(df: DataFrame, columns: TableColumnNames) -> Result<HighPerformancePointCloud> {
     let x = get_f32_col(&df, &columns.x)?;
     let y = get_f32_col(&df, &columns.y)?;
     let z = get_f32_col(&df, &columns.z)?;
@@ -152,7 +152,10 @@ fn from_dataframe(df: DataFrame, columns: TableColumns) -> Result<HighPerformanc
     Ok(pc)
 }
 
-fn to_dataframe(pc: &HighPerformancePointCloud, columns: TableColumns) -> Result<DataFrame> {
+fn to_dataframe(
+    pc: &HighPerformancePointCloud,
+    column_names: TableColumnNames,
+) -> Result<DataFrame> {
     let xyz = pc.get_xyz();
     let mut x = Vec::with_capacity(xyz.len());
     let mut y = Vec::with_capacity(xyz.len());
@@ -163,30 +166,35 @@ fn to_dataframe(pc: &HighPerformancePointCloud, columns: TableColumns) -> Result
         z.push(point[2]);
     }
 
-    let mut series: Vec<Series> = vec![
-        Series::new(PlSmallStr::from_str(&columns.x), x),
-        Series::new(PlSmallStr::from_str(&columns.y), y),
-        Series::new(PlSmallStr::from_str(&columns.z), z),
+    let mut columns: Vec<Column> = vec![
+        Column::new(PlSmallStr::from_str(&column_names.x), x),
+        Column::new(PlSmallStr::from_str(&column_names.y), y),
+        Column::new(PlSmallStr::from_str(&column_names.z), z),
     ];
 
-    if let Some(name) = &columns.intensity {
+    if let Some(name) = &column_names.intensity {
         if let Some(intensity) = pc.get_intensity() {
-            series.push(Series::new(PlSmallStr::from_str(name), intensity));
+            columns.push(Column::new(PlSmallStr::from_str(name), intensity));
         }
     }
 
-    if let (Some(rn), Some(gn), Some(bn)) = (&columns.rgb_r, &columns.rgb_g, &columns.rgb_b) {
+    if let (Some(rn), Some(gn), Some(bn)) = (
+        &column_names.rgb_r,
+        &column_names.rgb_g,
+        &column_names.rgb_b,
+    ) {
         if let Some((r, g, b)) = pc.get_rgb() {
             let r_u32: Vec<u32> = r.into_iter().map(|v| v as u32).collect();
             let g_u32: Vec<u32> = g.into_iter().map(|v| v as u32).collect();
             let b_u32: Vec<u32> = b.into_iter().map(|v| v as u32).collect();
-            series.push(Series::new(PlSmallStr::from_str(rn), r_u32));
-            series.push(Series::new(PlSmallStr::from_str(gn), g_u32));
-            series.push(Series::new(PlSmallStr::from_str(bn), b_u32));
+            columns.push(Column::new(PlSmallStr::from_str(rn), r_u32));
+            columns.push(Column::new(PlSmallStr::from_str(gn), g_u32));
+            columns.push(Column::new(PlSmallStr::from_str(bn), b_u32));
         }
     }
 
-    DataFrame::new(series).map_err(|e| PointCloudError::ParseError(e.to_string()))
+    // let columns: Vec<Column> = series.into_iter().map(|s| s.into()).collect();
+    DataFrame::new(columns).map_err(|e| PointCloudError::ParseError(e.to_string()))
 }
 
 fn get_f32_col(df: &DataFrame, name: &str) -> Result<Vec<f32>> {

@@ -6,11 +6,13 @@ readme = "ai_doc/README.md"
 authors = [
     { name = "liuzhen19", email = "liuzhen19@xiaomi.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "loguru>=0.7.3",
-    "numpy>=1.20.0",
+    "numpy>=2.0.0",
 ]
+
+
 
 [tool.maturin]
 module-name = "pcl_rustic._core"

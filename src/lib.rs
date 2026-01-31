@@ -369,7 +369,7 @@ impl PyPointCloud {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> PyResult<Self> {
-        let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
+        let columns = io::table::TableColumnNames::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         let inner = HighPerformancePointCloud::from_table_csv(path, delimiter, columns)
             .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
@@ -398,7 +398,7 @@ impl PyPointCloud {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> PyResult<Self> {
-        let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
+        let columns = io::table::TableColumnNames::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         let inner =
             HighPerformancePointCloud::from_table_parquet(path, columns).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
@@ -429,7 +429,7 @@ impl PyPointCloud {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> PyResult<()> {
-        let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
+        let columns = io::table::TableColumnNames::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner
             .to_table_csv(path, delimiter, columns)
             .map_err(PyErr::from)?;
@@ -459,7 +459,7 @@ impl PyPointCloud {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> PyResult<()> {
-        let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
+        let columns = io::table::TableColumnNames::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner
             .to_table_parquet(path, columns)
             .map_err(PyErr::from)?;
@@ -489,7 +489,7 @@ impl PyPointCloud {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> PyResult<Self> {
-        let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
+        let columns = io::table::TableColumnNames::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         let inner =
             HighPerformancePointCloud::load_from_file(path, Some(columns)).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
@@ -518,7 +518,7 @@ impl PyPointCloud {
         rgb_g: Option<String>,
         rgb_b: Option<String>,
     ) -> PyResult<()> {
-        let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
+        let columns = io::table::TableColumnNames::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner
             .save_to_file(path, Some(columns))
             .map_err(PyErr::from)?;
