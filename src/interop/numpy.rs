@@ -11,8 +11,8 @@ use pyo3::types::{PyDict, PyDictMethods};
 impl HighPerformancePointCloud {
     /// 转换为numpy数组字典
     /// 返回包含'xyz'、可选的'intensity'和'rgb' (r, g, b分离)的字典
-    pub fn to_numpy<'py>(&self, py: Python<'py>) -> Result<PyObject> {
-        let dict = PyDict::new_bound(py);
+    pub fn to_numpy<'py>(&self, py: Python<'py>) -> Result<Py<PyAny>> {
+        let dict = PyDict::new(py);
 
         // 转换XYZ
         let xyz_array = tensor::tensor2_to_vec(self.xyz_ref());
@@ -24,16 +24,17 @@ impl HighPerformancePointCloud {
 
         let xyz_nd = Array2::from_shape_vec((n, 3), xyz_flat)
             .map_err(|e| format!("XYZ shape error: {}", e))?;
-        let xyz_np = IntoPyArray::into_pyarray_bound(xyz_nd, py);
-        dict.set_item("xyz", xyz_np).map_err(|e| e.to_string())?;
+        let xyz_np = IntoPyArray::into_pyarray(xyz_nd, py);
+        dict.set_item("xyz", xyz_np)
+            .map_err(|e: PyErr| e.to_string())?;
 
         // 转换intensity（如果存在）
         if let Some(intensity) = self.intensity_ref() {
             let intensity_vec = tensor::tensor1_to_vec(intensity);
             let intensity_nd = Array1::from_vec(intensity_vec);
-            let intensity_np = IntoPyArray::into_pyarray_bound(intensity_nd, py);
+            let intensity_np = IntoPyArray::into_pyarray(intensity_nd, py);
             dict.set_item("intensity", intensity_np)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e: PyErr| e.to_string())?;
         }
 
         // 转换RGB（如果存在）- 分离的R/G/B通道
@@ -47,22 +48,22 @@ impl HighPerformancePointCloud {
             let g_nd = Array1::from_vec(g_vec);
             let b_nd = Array1::from_vec(b_vec);
 
-            let r_np = IntoPyArray::into_pyarray_bound(r_nd, py);
-            let g_np = IntoPyArray::into_pyarray_bound(g_nd, py);
-            let b_np = IntoPyArray::into_pyarray_bound(b_nd, py);
+            let r_np = IntoPyArray::into_pyarray(r_nd, py);
+            let g_np = IntoPyArray::into_pyarray(g_nd, py);
+            let b_np = IntoPyArray::into_pyarray(b_nd, py);
 
-            dict.set_item("r", r_np).map_err(|e| e.to_string())?;
-            dict.set_item("g", g_np).map_err(|e| e.to_string())?;
-            dict.set_item("b", b_np).map_err(|e| e.to_string())?;
+            dict.set_item("r", r_np).map_err(|e: PyErr| e.to_string())?;
+            dict.set_item("g", g_np).map_err(|e: PyErr| e.to_string())?;
+            dict.set_item("b", b_np).map_err(|e: PyErr| e.to_string())?;
         }
 
         // 转换自定义属性
         for (name, attr) in self.attributes_ref() {
             let attr_vec = tensor::tensor1_to_vec(attr);
             let attr_nd = Array1::from_vec(attr_vec);
-            let attr_np = IntoPyArray::into_pyarray_bound(attr_nd, py);
+            let attr_np = IntoPyArray::into_pyarray(attr_nd, py);
             dict.set_item(name.as_str(), attr_np)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e: PyErr| e.to_string())?;
         }
 
         Ok(dict.into())
@@ -174,7 +175,7 @@ use numpy::{PyArray1, PyArray2};
 /// 从 PyAny 读取 2D XYZ 数组，仅支持 f32 dtype
 fn read_xyz_from_pyany(obj: &Bound<'_, pyo3::PyAny>) -> Result<Tensor2> {
     let arr = obj
-        .downcast::<PyArray2<f32>>()
+        .cast::<PyArray2<f32>>()
         .map_err(|_| "xyz必须是dtype=float32的2D numpy数组，请使用 arr.astype(np.float32) 转换")?;
 
     let shape = arr.shape();
@@ -192,7 +193,7 @@ fn read_xyz_from_pyany(obj: &Bound<'_, pyo3::PyAny>) -> Result<Tensor2> {
 /// 从 PyAny 读取 1D 数组，仅支持 f32 dtype
 fn read_1d_array_from_pyany(obj: &Bound<'_, pyo3::PyAny>) -> Result<Tensor1> {
     let arr = obj
-        .downcast::<PyArray1<f32>>()
+        .cast::<PyArray1<f32>>()
         .map_err(|_| "必须是dtype=float32的1D numpy数组，请使用 arr.astype(np.float32) 转换")?;
 
     let readonly = arr.readonly();

@@ -9,12 +9,7 @@ use std::fs;
 impl HighPerformancePointCloud {
     /// 从LAS/LAZ文件读取（自动检测压缩）
     pub fn from_las_laz(path: &str) -> Result<Self> {
-        if fs::metadata(path).is_err() {
-            return Err(format!("文件不存在: {}", path).into());
-        }
-
-        let file = fs::File::open(path).map_err(PointCloudError::IoError)?;
-        let mut reader = Reader::new(file).map_err(|_| "LAS文件格式错误".to_string())?;
+        let mut reader = Reader::from_path(path).map_err(|e| format!("无法读取LAS文件: {}", e))?;
 
         let mut xyz = Vec::new();
         let mut intensity = Vec::new();
@@ -83,10 +78,12 @@ impl HighPerformancePointCloud {
         let rgb = self.get_rgb();
 
         for (idx, point_xyz) in xyz.iter().enumerate() {
-            let mut point = Point::default();
-            point.x = point_xyz[0] as f64;
-            point.y = point_xyz[1] as f64;
-            point.z = point_xyz[2] as f64;
+            let mut point = Point {
+                x: point_xyz[0] as f64,
+                y: point_xyz[1] as f64,
+                z: point_xyz[2] as f64,
+                ..Default::default()
+            };
 
             if let Some(intensity_vec) = &intensity {
                 let raw = (intensity_vec[idx] * 65535.0).clamp(0.0, 65535.0);

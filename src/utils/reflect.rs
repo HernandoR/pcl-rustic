@@ -55,8 +55,8 @@ pub fn compute_voxel_centroid(indices: &[usize], xyz: &[Vec<f32>]) -> Result<Vec
         }
     }
 
-    for j in 0..3 {
-        centroid[j] /= indices.len() as f32;
+    for value in centroid.iter_mut() {
+        *value /= indices.len() as f32;
     }
 
     Ok(centroid)

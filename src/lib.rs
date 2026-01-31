@@ -11,6 +11,8 @@ use traits::{
     CoordinateTransform, DownsampleStrategy, PointCloudCore, PointCloudProperties, VoxelDownsample,
 };
 
+type RgbTuple = (Py<PyAny>, Py<PyAny>, Py<PyAny>);
+
 /// Python模块入口
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -103,7 +105,7 @@ impl PyPointCloud {
     }
 
     /// 获取XYZ坐标（返回 numpy 数组字典中的 xyz）
-    fn get_xyz(&self, py: Python) -> PyResult<PyObject> {
+    fn get_xyz(&self, py: Python) -> PyResult<Py<PyAny>> {
         use crate::utils::tensor;
         use numpy::ndarray::Array2;
         use numpy::IntoPyArray;
@@ -116,7 +118,7 @@ impl PyPointCloud {
         }
         let xyz_nd = Array2::from_shape_vec((n, 3), xyz_flat)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("形状错误: {}", e)))?;
-        let xyz_np = IntoPyArray::into_pyarray_bound(xyz_nd, py);
+        let xyz_np = IntoPyArray::into_pyarray(xyz_nd, py);
         Ok(xyz_np.into())
     }
 
@@ -131,7 +133,7 @@ impl PyPointCloud {
     }
 
     /// 获取 intensity（返回 numpy 数组）
-    fn get_intensity(&self, py: Python) -> PyResult<Option<PyObject>> {
+    fn get_intensity(&self, py: Python) -> PyResult<Option<Py<PyAny>>> {
         use crate::utils::tensor;
         use numpy::ndarray::Array1;
         use numpy::IntoPyArray;
@@ -139,7 +141,7 @@ impl PyPointCloud {
         if let Some(intensity) = self.inner.intensity_ref() {
             let vec = tensor::tensor1_to_vec(intensity);
             let nd = Array1::from_vec(vec);
-            let np = IntoPyArray::into_pyarray_bound(nd, py);
+            let np = IntoPyArray::into_pyarray(nd, py);
             Ok(Some(np.into()))
         } else {
             Ok(None)
@@ -147,7 +149,7 @@ impl PyPointCloud {
     }
 
     /// 获取 RGB（返回 3 个 numpy 数组的元组）
-    fn get_rgb(&self, py: Python) -> PyResult<Option<(PyObject, PyObject, PyObject)>> {
+    fn get_rgb(&self, py: Python) -> PyResult<Option<RgbTuple>> {
         use crate::utils::tensor;
         use numpy::ndarray::Array1;
         use numpy::IntoPyArray;
@@ -162,9 +164,9 @@ impl PyPointCloud {
             let g_nd = Array1::from_vec(g_vec);
             let b_nd = Array1::from_vec(b_vec);
 
-            let r_np = IntoPyArray::into_pyarray_bound(r_nd, py);
-            let g_np = IntoPyArray::into_pyarray_bound(g_nd, py);
-            let b_np = IntoPyArray::into_pyarray_bound(b_nd, py);
+            let r_np = IntoPyArray::into_pyarray(r_nd, py);
+            let g_np = IntoPyArray::into_pyarray(g_nd, py);
+            let b_np = IntoPyArray::into_pyarray(b_nd, py);
 
             Ok(Some((r_np.into(), g_np.into(), b_np.into())))
         } else {
@@ -235,14 +237,14 @@ impl PyPointCloud {
     }
 
     /// 获取属性（返回 numpy 数组）
-    fn get_attribute(&self, py: Python, name: &str) -> PyResult<Option<PyObject>> {
+    fn get_attribute(&self, py: Python, name: &str) -> PyResult<Option<Py<PyAny>>> {
         use numpy::ndarray::Array1;
         use numpy::IntoPyArray;
 
         if let Some(attr) = self.inner.attributes_ref().get(name) {
             let vec = utils::tensor::tensor1_to_vec(attr);
             let nd = Array1::from_vec(vec);
-            let np = IntoPyArray::into_pyarray_bound(nd, py);
+            let np = IntoPyArray::into_pyarray(nd, py);
             Ok(Some(np.into()))
         } else {
             Ok(None)
@@ -355,6 +357,7 @@ impl PyPointCloud {
         rgb_g = None,
         rgb_b = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn from_csv(
         path: &str,
         delimiter: u8,
@@ -384,6 +387,7 @@ impl PyPointCloud {
         rgb_g = None,
         rgb_b = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn from_parquet(
         path: &str,
         x: Option<String>,
@@ -412,6 +416,7 @@ impl PyPointCloud {
         rgb_g = None,
         rgb_b = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn to_csv(
         &self,
         path: &str,
@@ -442,6 +447,7 @@ impl PyPointCloud {
         rgb_g = None,
         rgb_b = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn to_parquet(
         &self,
         path: &str,
@@ -472,6 +478,7 @@ impl PyPointCloud {
         rgb_g = None,
         rgb_b = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn load_from_file(
         path: &str,
         x: Option<String>,
@@ -499,6 +506,7 @@ impl PyPointCloud {
         rgb_g = None,
         rgb_b = None
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn save_to_file(
         &self,
         path: &str,
@@ -523,7 +531,7 @@ impl PyPointCloud {
     }
 
     /// 转换为Python字典（包含numpy数组）
-    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
         self.inner.to_numpy(py).map_err(PyErr::from)
     }
 
@@ -577,7 +585,7 @@ use utils::tensor::Tensor1;
 
 /// 从 PyAny 读取 1D 数组作为属性，仅支持 f32 dtype
 fn read_attribute_array(obj: &Bound<'_, pyo3::PyAny>) -> PyResult<Tensor1> {
-    let arr = obj.downcast::<PyArray1<f32>>().map_err(|_| {
+    let arr = obj.cast::<PyArray1<f32>>().map_err(|_| {
         pyo3::exceptions::PyTypeError::new_err(
             "必须是dtype=float32的1D numpy数组，请使用 arr.astype(np.float32) 转换",
         )
