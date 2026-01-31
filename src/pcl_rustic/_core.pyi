@@ -4,7 +4,7 @@ pcl_rustic._core - Rust实现的核心库
 类型注解和API规范
 """
 
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
 
 class PointCloud:
     """高性能点云类

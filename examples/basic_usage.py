@@ -5,8 +5,9 @@ PCL Rustic 使用示例
 演示完整的点云处理工作流
 """
 
-from pcl_rustic import PointCloud, DownsampleStrategy
 import math
+
+from pcl_rustic import DownsampleStrategy, PointCloud
 
 
 def example_basic_operations():

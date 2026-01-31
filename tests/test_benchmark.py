@@ -6,14 +6,14 @@ PCL Rustic 性能基准测试
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Dict
-
-import pytest
-import numpy as np
 import time
-from loguru import logger
-from pcl_rustic import PointCloud, DownsampleStrategy
+from typing import Dict, Optional, Tuple
 
+import numpy as np
+import pytest
+from loguru import logger
+
+from pcl_rustic import DownsampleStrategy, PointCloud
 
 # 配置 loguru
 logger.remove()

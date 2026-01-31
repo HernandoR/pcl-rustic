@@ -6,12 +6,11 @@ PCL Rustic pytest 配置和 fixtures
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
-import pytest
 import numpy as np
+import pytest
 from loguru import logger
-
 
 # 配置 loguru 用于测试输出
 logger.remove()
