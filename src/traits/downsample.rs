@@ -8,9 +8,6 @@ pub trait DownsampleStrategy: Send + Sync {
     /// xyz: 全部点云的XYZ坐标
     /// 返回选中点的索引
     fn select_representative(&self, indices: Vec<usize>, xyz: &[Vec<f32>]) -> Result<usize>;
-
-    /// 返回策略名称
-    fn name(&self) -> &str;
 }
 
 /// 体素下采样Trait：定义下采样核心接口

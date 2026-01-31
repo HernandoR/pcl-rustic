@@ -1,19 +1,15 @@
 /// 体素下采样：反射分组、2种采样策略实现
 use crate::point_cloud::core::HighPerformancePointCloud;
-use crate::traits::{VoxelDownsample, DownsampleStrategy};
-use crate::utils::reflect;
+use crate::traits::{DownsampleStrategy, PointCloudProperties, VoxelDownsample};
 use crate::utils::error::Result;
+use crate::utils::reflect;
 use crate::utils::tensor;
 
 /// 随机采样策略
 pub struct RandomSampleStrategy;
 
 impl DownsampleStrategy for RandomSampleStrategy {
-    fn select_representative(
-        &self,
-        indices: Vec<usize>,
-        _xyz: &[Vec<f32>],
-    ) -> Result<usize> {
+    fn select_representative(&self, indices: Vec<usize>, _xyz: &[Vec<f32>]) -> Result<usize> {
         if indices.is_empty() {
             return Err("体素内无点".into());
         }
@@ -21,26 +17,14 @@ impl DownsampleStrategy for RandomSampleStrategy {
         // 简单随机选择第一个点（生产环境可使用rand crate）
         Ok(indices[indices.len() / 2])
     }
-
-    fn name(&self) -> &str {
-        "RandomSample"
-    }
 }
 
 /// 重心采样策略（选择最接近体素中心的点）
 pub struct CentroidSampleStrategy;
 
 impl DownsampleStrategy for CentroidSampleStrategy {
-    fn select_representative(
-        &self,
-        indices: Vec<usize>,
-        xyz: &[Vec<f32>],
-    ) -> Result<usize> {
+    fn select_representative(&self, indices: Vec<usize>, xyz: &[Vec<f32>]) -> Result<usize> {
         reflect::find_closest_to_centroid(&indices, xyz)
-    }
-
-    fn name(&self) -> &str {
-        "CentroidSample"
     }
 }
 

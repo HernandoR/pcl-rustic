@@ -58,17 +58,18 @@ impl HighPerformancePointCloud {
         delimiter: u8,
         columns: TableColumns,
     ) -> Result<Self> {
-        let file = File::open(path).map_err(|e| e.into())?;
-        let df = CsvReader::new(file)
-            .has_header(true)
-            .with_delimiter(delimiter)
+        let df = CsvReadOptions::default()
+            .with_has_header(true)
+            .map_parse_options(|opts| opts.with_separator(delimiter))
+            .try_into_reader_with_file_path(Some(path.into()))
+            .map_err(|e| PointCloudError::ParseError(e.to_string()))?
             .finish()
             .map_err(|e| PointCloudError::ParseError(e.to_string()))?;
         from_dataframe(df, columns)
     }
 
     pub fn from_table_parquet(path: &str, columns: TableColumns) -> Result<Self> {
-        let file = File::open(path).map_err(|e| e.into())?;
+        let file = File::open(path).map_err(PointCloudError::IoError)?;
         let df = ParquetReader::new(file)
             .finish()
             .map_err(|e| PointCloudError::ParseError(e.to_string()))?;
@@ -81,21 +82,21 @@ impl HighPerformancePointCloud {
         delimiter: u8,
         columns: TableColumns,
     ) -> Result<()> {
-        let df = to_dataframe(self, columns)?;
-        let file = File::create(path).map_err(|e| e.into())?;
+        let mut df = to_dataframe(self, columns)?;
+        let file = File::create(path).map_err(PointCloudError::IoError)?;
         CsvWriter::new(file)
-            .has_header(true)
-            .with_delimiter(delimiter)
-            .finish(&df)
+            .include_header(true)
+            .with_separator(delimiter)
+            .finish(&mut df)
             .map_err(|e| PointCloudError::ParseError(e.to_string()))?;
         Ok(())
     }
 
     pub fn to_table_parquet(&self, path: &str, columns: TableColumns) -> Result<()> {
-        let df = to_dataframe(self, columns)?;
-        let file = File::create(path).map_err(|e| e.into())?;
+        let mut df = to_dataframe(self, columns)?;
+        let file = File::create(path).map_err(PointCloudError::IoError)?;
         ParquetWriter::new(file)
-            .finish(&df)
+            .finish(&mut df)
             .map_err(|e| PointCloudError::ParseError(e.to_string()))?;
         Ok(())
     }
@@ -159,30 +160,30 @@ fn to_dataframe(pc: &HighPerformancePointCloud, columns: TableColumns) -> Result
     }
 
     let mut series: Vec<Series> = vec![
-        Series::new(&columns.x, x),
-        Series::new(&columns.y, y),
-        Series::new(&columns.z, z),
+        Series::new(PlSmallStr::from_str(&columns.x), x),
+        Series::new(PlSmallStr::from_str(&columns.y), y),
+        Series::new(PlSmallStr::from_str(&columns.z), z),
     ];
 
     if let Some(name) = &columns.intensity {
         if let Some(intensity) = pc.get_intensity() {
-            series.push(Series::new(name, intensity));
+            series.push(Series::new(PlSmallStr::from_str(name), intensity));
         }
     }
 
     if let (Some(rn), Some(gn), Some(bn)) = (&columns.rgb_r, &columns.rgb_g, &columns.rgb_b) {
         if let Some(rgb) = pc.get_rgb() {
-            let mut r = Vec::with_capacity(rgb.len());
-            let mut g = Vec::with_capacity(rgb.len());
-            let mut b = Vec::with_capacity(rgb.len());
+            let mut r: Vec<u32> = Vec::with_capacity(rgb.len());
+            let mut g: Vec<u32> = Vec::with_capacity(rgb.len());
+            let mut b: Vec<u32> = Vec::with_capacity(rgb.len());
             for c in rgb {
-                r.push(c[0]);
-                g.push(c[1]);
-                b.push(c[2]);
+                r.push(c[0] as u32);
+                g.push(c[1] as u32);
+                b.push(c[2] as u32);
             }
-            series.push(Series::new(rn, r));
-            series.push(Series::new(gn, g));
-            series.push(Series::new(bn, b));
+            series.push(Series::new(PlSmallStr::from_str(rn), r));
+            series.push(Series::new(PlSmallStr::from_str(gn), g));
+            series.push(Series::new(PlSmallStr::from_str(bn), b));
         }
     }
 

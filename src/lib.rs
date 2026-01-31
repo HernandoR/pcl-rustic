@@ -5,12 +5,13 @@ mod io;
 mod interop;
 
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use point_cloud::core::HighPerformancePointCloud;
 use traits::{PointCloudCore, PointCloudProperties, CoordinateTransform, VoxelDownsample, DownsampleStrategy};
 
 /// Python模块入口
 #[pymodule]
-fn _core(py: Python, m: &PyModule) -> PyResult<()> {
+fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPointCloud>()?;
     m.add_class::<PyDownsampleStrategy>()?;
     Ok(())
@@ -36,6 +37,38 @@ impl PyPointCloud {
     #[staticmethod]
     fn from_xyz(xyz: Vec<Vec<f32>>) -> PyResult<Self> {
         let inner = HighPerformancePointCloud::from_xyz(xyz)
+            .map_err(|e| PyErr::from(e))?;
+        Ok(PyPointCloud { inner })
+    }
+
+    /// 从XYZ和intensity创建点云
+    #[staticmethod]
+    fn from_xyz_intensity(xyz: Vec<Vec<f32>>, intensity: Vec<f32>) -> PyResult<Self> {
+        let inner = HighPerformancePointCloud::from_xyz_intensity(xyz, intensity)
+            .map_err(|e| PyErr::from(e))?;
+        Ok(PyPointCloud { inner })
+    }
+
+    /// 从XYZ和RGB创建点云
+    #[staticmethod]
+    fn from_xyz_rgb(xyz: Vec<Vec<f32>>, rgb: Vec<Vec<u8>>) -> PyResult<Self> {
+        let inner = HighPerformancePointCloud::from_xyz_rgb(xyz, rgb)
+            .map_err(|e| PyErr::from(e))?;
+        Ok(PyPointCloud { inner })
+    }
+
+    /// 从XYZ、intensity和RGB创建点云
+    #[staticmethod]
+    fn from_xyz_intensity_rgb(xyz: Vec<Vec<f32>>, intensity: Vec<f32>, rgb: Vec<Vec<u8>>) -> PyResult<Self> {
+        let inner = HighPerformancePointCloud::from_xyz_intensity_rgb(xyz, intensity, rgb)
+            .map_err(|e| PyErr::from(e))?;
+        Ok(PyPointCloud { inner })
+    }
+
+    /// 从numpy字典创建点云
+    #[staticmethod]
+    fn from_dict(py: Python, data: &Bound<'_, PyDict>) -> PyResult<Self> {
+        let inner = HighPerformancePointCloud::from_numpy(py, data)
             .map_err(|e| PyErr::from(e))?;
         Ok(PyPointCloud { inner })
     }
@@ -111,6 +144,47 @@ impl PyPointCloud {
     /// 删除属性
     fn remove_attribute(&mut self, name: &str) -> PyResult<()> {
         self.inner.remove_attribute(name)
+            .map_err(|e| PyErr::from(e))?;
+        Ok(())
+    }
+
+    /// 清除所有自定义属性
+    fn clear_attributes(&mut self) {
+        self.inner.clear_attributes();
+    }
+
+    /// 批量设置所有自定义属性
+    fn set_all_attributes(&mut self, attributes: std::collections::HashMap<String, Vec<f32>>) -> PyResult<()> {
+        self.inner.set_all_attributes(attributes)
+            .map_err(|e| PyErr::from(e))?;
+        Ok(())
+    }
+
+    /// 检查是否包含所有指定的属性
+    fn has_attributes(&self, names: Vec<String>) -> bool {
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        self.inner.has_attributes(&name_refs)
+    }
+
+    /// 获取所有属性的名称和长度
+    fn attribute_info(&self) -> Vec<(String, usize)> {
+        self.inner.attribute_info()
+    }
+
+    /// 移除intensity
+    fn remove_intensity(&mut self) {
+        self.inner.remove_intensity();
+    }
+
+    /// 移除RGB
+    fn remove_rgb(&mut self) {
+        self.inner.remove_rgb();
+    }
+
+    /// 删除文件
+    #[staticmethod]
+    fn delete_file(path: &str) -> PyResult<()> {
+        HighPerformancePointCloud::delete_file(path)
             .map_err(|e| PyErr::from(e))?;
         Ok(())
     }
@@ -221,14 +295,6 @@ impl PyPointCloud {
         Ok(PyPointCloud { inner })
     }
 
-    /// 从Parquet读取
-    #[staticmethod]
-    fn from_parquet(path: &str) -> PyResult<Self> {
-        let inner = HighPerformancePointCloud::from_parquet(path)
-            .map_err(|e| PyErr::from(e))?;
-        Ok(PyPointCloud { inner })
-    }
-
     /// 保存为CSV
     #[pyo3(signature = (
         path,
@@ -283,13 +349,6 @@ impl PyPointCloud {
     ) -> PyResult<()> {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner.to_table_parquet(path, columns)
-            .map_err(|e| PyErr::from(e))?;
-        Ok(())
-    }
-
-    /// 保存为Parquet
-    fn to_parquet(&self, path: &str) -> PyResult<()> {
-        self.inner.to_parquet(path)
             .map_err(|e| PyErr::from(e))?;
         Ok(())
     }
@@ -387,12 +446,14 @@ pub struct PyDownsampleStrategy;
 impl PyDownsampleStrategy {
     /// 随机采样策略
     #[classattr]
+    #[allow(non_snake_case)]
     fn RANDOM() -> i32 {
         0
     }
 
     /// 重心采样策略（最接近体素中心）
     #[classattr]
+    #[allow(non_snake_case)]
     fn CENTROID() -> i32 {
         1
     }

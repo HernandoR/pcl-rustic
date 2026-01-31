@@ -1,9 +1,9 @@
 /// 坐标变换：矩阵乘法批量实现XYZ空间变换
 use crate::point_cloud::core::HighPerformancePointCloud;
 use crate::traits::CoordinateTransform;
-use crate::utils::{error::Result, tensor};
 use crate::utils::tensor::Backend;
-use burn::tensor::Tensor;
+use crate::utils::{error::Result, tensor};
+use burn::tensor::{Tensor, TensorData};
 
 impl CoordinateTransform for HighPerformancePointCloud {
     fn transform(&self, matrix: Vec<Vec<f32>>) -> Result<Self> {
@@ -48,11 +48,7 @@ impl CoordinateTransform for HighPerformancePointCloud {
         Ok(result)
     }
 
-    fn rigid_transform(
-        &self,
-        rotation: Vec<Vec<f32>>,
-        translation: Vec<f32>,
-    ) -> Result<Self> {
+    fn rigid_transform(&self, rotation: Vec<Vec<f32>>, translation: Vec<f32>) -> Result<Self> {
         if translation.len() != 3 {
             return Err("平移向量必须为3维".into());
         }
@@ -64,7 +60,11 @@ impl CoordinateTransform for HighPerformancePointCloud {
 
         let rotation_tensor = tensor::matrix_to_tensor(rotation)?;
         let rotation_t = rotation_tensor.transpose();
-        let translation_tensor = Tensor::<Backend, 2>::from_floats(translation, &tensor::default_device()).reshape([1, 3]);
+
+        let translation_data = TensorData::from(translation.as_slice());
+        let translation_tensor =
+            Tensor::<Backend, 1>::from_data(translation_data, &tensor::default_device())
+                .reshape([1, 3]);
 
         let mut result = self.clone();
 
@@ -97,10 +97,7 @@ mod tests {
         let result = pc.transform(matrix).unwrap();
         let xyz_result = result.get_xyz();
 
-        assert!(
-            (xyz_result[0][0] - 2.0).abs() < 1e-5,
-            "X坐标变换失败"
-        );
+        assert!((xyz_result[0][0] - 2.0).abs() < 1e-5, "X坐标变换失败");
     }
 
     #[test]

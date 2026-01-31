@@ -222,7 +222,12 @@ impl PointCloudProperties for HighPerformancePointCloud {
 
     fn set_rgb(&mut self, rgb: Vec<Vec<u8>>) -> Result<()> {
         if rgb.len() != self.point_count() {
-            return Err(format!("RGB点数不匹配: 期望{}，实际{}", self.point_count(), rgb.len()).into());
+            return Err(format!(
+                "RGB点数不匹配: 期望{}，实际{}",
+                self.point_count(),
+                rgb.len()
+            )
+            .into());
         }
         tensor::validate_rgb_shape(&rgb)?;
         self.rgb = Some(rgb);
@@ -234,13 +239,15 @@ impl PointCloudProperties for HighPerformancePointCloud {
             return Err(format!("属性'{}'已存在", name).into());
         }
         tensor::validate_attribute_shape(&data, self.point_count())?;
-        self.attributes.insert(name, tensor::intensity_to_tensor(data));
+        self.attributes
+            .insert(name, tensor::intensity_to_tensor(data));
         Ok(())
     }
 
     fn set_attribute(&mut self, name: String, data: Vec<f32>) -> Result<()> {
         tensor::validate_attribute_shape(&data, self.point_count())?;
-        self.attributes.insert(name, tensor::intensity_to_tensor(data));
+        self.attributes
+            .insert(name, tensor::intensity_to_tensor(data));
         Ok(())
     }
 

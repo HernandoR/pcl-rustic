@@ -1,6 +1,6 @@
 /// burn张量工具函数：类型转换、维度检查等
 use burn::tensor::{Tensor, TensorData};
-use burn_wgpu::{Wgpu, WgpuDevice};
+use burn::backend::wgpu::{Wgpu, WgpuDevice};
 use crate::utils::error::{PointCloudError, Result};
 
 pub type Backend = Wgpu<f32, i32>;
@@ -108,7 +108,8 @@ pub fn vec2_to_tensor(data: Vec<Vec<f32>>) -> Result<Tensor2> {
     }
 
     let flat: Vec<f32> = data.into_iter().flatten().collect();
-    let tensor = Tensor::<Backend, 2>::from_floats(flat, &default_device()).reshape([rows, cols]);
+    let tensor_data = TensorData::from(flat.as_slice());
+    let tensor = Tensor::<Backend, 1>::from_data(tensor_data, &default_device()).reshape([rows, cols]);
     Ok(tensor)
 }
 
@@ -119,7 +120,8 @@ pub fn xyz_to_tensor(xyz: Vec<Vec<f32>>) -> Result<Tensor2> {
 }
 
 pub fn intensity_to_tensor(intensity: Vec<f32>) -> Tensor1 {
-    Tensor::<Backend, 1>::from_floats(intensity, &default_device())
+    let tensor_data = TensorData::from(intensity.as_slice());
+    Tensor::<Backend, 1>::from_data(tensor_data, &default_device())
 }
 
 pub fn tensor1_len(tensor: &Tensor1) -> usize {
@@ -139,15 +141,16 @@ pub fn tensor2_cols(tensor: &Tensor2) -> usize {
 
 pub fn tensor1_to_vec(tensor: &Tensor1) -> Vec<f32> {
     let data: TensorData = tensor.to_data();
-    data.value
+    data.to_vec::<f32>().expect("Failed to convert tensor data to Vec<f32>")
 }
 
 pub fn tensor2_to_vec(tensor: &Tensor2) -> Vec<Vec<f32>> {
     let data: TensorData = tensor.to_data();
-    let rows = data.shape.dims[0];
-    let cols = data.shape.dims[1];
-    data.value
-        .chunks(cols)
+    let shape = &data.shape;
+    let rows = shape[0];
+    let cols = shape[1];
+    let flat: Vec<f32> = data.to_vec::<f32>().expect("Failed to convert tensor data to Vec<f32>");
+    flat.chunks(cols)
         .take(rows)
         .map(|chunk| chunk.to_vec())
         .collect()

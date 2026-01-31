@@ -1,5 +1,6 @@
 /// 属性管理：intensity/RGB批量操作、自定义HashMap属性增/改
 use crate::point_cloud::core::HighPerformancePointCloud;
+use crate::traits::PointCloudCore;
 use crate::utils::error::Result;
 use crate::utils::tensor;
 
@@ -33,16 +34,6 @@ impl HighPerformancePointCloud {
             .collect();
         *self.attributes_mut() = converted;
         Ok(())
-    }
-
-    /// 获取intensity值（转向量）
-    pub fn get_intensity_vec(&self) -> Option<Vec<f32>> {
-        self.intensity_ref().map(tensor::tensor1_to_vec)
-    }
-
-    /// 获取RGB值（转向量）
-    pub fn get_rgb_vec(&self) -> Option<Vec<Vec<u8>>> {
-        self.rgb_ref().map(|r| r.clone())
     }
 
     /// 移除intensity
