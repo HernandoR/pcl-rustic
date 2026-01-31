@@ -12,6 +12,8 @@ crate-type = ["cdylib"]
 [dependencies]
 # Core tensor computation
 burn = { version = "0.20.1", features = ["std", "wgpu","ndarray","candle"] }
+# this is to solve compile conflict between burn 20.1 and candle
+candle-core = { version = ">=0.9.1,<0.9.2"}
 ndarray = "^0.17"
 
 # File I/O
