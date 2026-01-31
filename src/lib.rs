@@ -51,8 +51,7 @@ impl PyPointCloud {
         xyz: &Bound<'_, pyo3::PyAny>,
         intensity: &Bound<'_, pyo3::PyAny>,
     ) -> PyResult<Self> {
-        let mut inner =
-            HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
+        let mut inner = HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
         inner
             .set_intensity_from_array(intensity)
             .map_err(PyErr::from)?;
@@ -69,11 +68,8 @@ impl PyPointCloud {
         g: &Bound<'_, pyo3::PyAny>,
         b: &Bound<'_, pyo3::PyAny>,
     ) -> PyResult<Self> {
-        let mut inner =
-            HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
-        inner
-            .set_rgb_from_arrays(r, g, b)
-            .map_err(PyErr::from)?;
+        let mut inner = HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
+        inner.set_rgb_from_arrays(r, g, b).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -86,14 +82,11 @@ impl PyPointCloud {
         g: &Bound<'_, pyo3::PyAny>,
         b: &Bound<'_, pyo3::PyAny>,
     ) -> PyResult<Self> {
-        let mut inner =
-            HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
+        let mut inner = HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
         inner
             .set_intensity_from_array(intensity)
             .map_err(PyErr::from)?;
-        inner
-            .set_rgb_from_arrays(r, g, b)
-            .map_err(PyErr::from)?;
+        inner.set_rgb_from_arrays(r, g, b).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -258,9 +251,7 @@ impl PyPointCloud {
 
     /// 删除属性
     fn remove_attribute(&mut self, name: &str) -> PyResult<()> {
-        self.inner
-            .remove_attribute(name)
-            .map_err(PyErr::from)?;
+        self.inner.remove_attribute(name).map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -347,9 +338,7 @@ impl PyPointCloud {
 
     /// 保存为LAS文件
     fn to_las(&self, path: &str, compress: bool) -> PyResult<()> {
-        self.inner
-            .to_las(path, compress)
-            .map_err(PyErr::from)?;
+        self.inner.to_las(path, compress).map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -406,8 +395,8 @@ impl PyPointCloud {
         rgb_b: Option<String>,
     ) -> PyResult<Self> {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
-        let inner = HighPerformancePointCloud::from_table_parquet(path, columns)
-            .map_err(PyErr::from)?;
+        let inner =
+            HighPerformancePointCloud::from_table_parquet(path, columns).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -494,8 +483,8 @@ impl PyPointCloud {
         rgb_b: Option<String>,
     ) -> PyResult<Self> {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
-        let inner = HighPerformancePointCloud::load_from_file(path, Some(columns))
-            .map_err(PyErr::from)?;
+        let inner =
+            HighPerformancePointCloud::load_from_file(path, Some(columns)).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 

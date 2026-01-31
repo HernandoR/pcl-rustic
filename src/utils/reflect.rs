@@ -32,10 +32,7 @@ pub fn group_points_by_voxel(
         let voxel_key = format!("{}_{}_{}", voxel_x, voxel_y, voxel_z);
 
         // 将点索引添加到对应体素组
-        voxel_groups
-            .entry(voxel_key)
-            .or_default()
-            .push(idx);
+        voxel_groups.entry(voxel_key).or_default().push(idx);
     }
 
     Ok(voxel_groups)
