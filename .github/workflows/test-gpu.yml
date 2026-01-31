@@ -80,7 +80,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install just
-        run: uv tool install just
+        run: uv tool install rust-just
 
       - name: Install dependencies and build
         run: |
@@ -305,7 +305,7 @@ jobs:
           python-version: ${{ matrix.platform.python-version }}
 
       - name: Install just
-        run: uv tool install just
+        run: uv tool install rust-just
 
       - name: Install dependencies and build
         run: |
