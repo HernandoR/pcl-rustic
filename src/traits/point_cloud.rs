@@ -26,6 +26,7 @@ pub trait PointCloudCore {
     fn attribute_names(&self) -> Vec<String>;
 
     /// 获取自定义属性数据
+    #[allow(unused)]
     fn get_attribute(&self, name: &str) -> Option<Vec<f32>>;
 }
 
@@ -38,6 +39,7 @@ pub trait PointCloudProperties {
     fn set_rgb(&mut self, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> Result<()>;
 
     /// 添加自定义属性（重复时报错）
+    #[allow(unused)]
     fn add_attribute(&mut self, name: String, data: Vec<f32>) -> Result<()>;
 
     /// 设置自定义属性（重复时覆盖）

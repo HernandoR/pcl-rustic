@@ -16,6 +16,44 @@ pub fn empty_xyz() -> Tensor2 {
     Tensor::<Backend, 2>::zeros([0, 3], &default_device())
 }
 
+// ============ 从 slice 创建 Tensor（避免 Vec 复制）============
+
+/// 从 &[f32] 创建 Tensor1
+pub fn tensor1_from_slice(data: &[f32]) -> Tensor1 {
+    let tensor_data = TensorData::from(data);
+    Tensor::<Backend, 1>::from_data(tensor_data, &default_device())
+}
+
+/// 从 flat &[f32] 创建 Tensor2，形状为 [rows, cols]
+pub fn tensor2_from_slice(data: &[f32], rows: usize, cols: usize) -> Result<Tensor2> {
+    if data.len() != rows * cols {
+        return Err(PointCloudError::TensorShapeError(format!(
+            "数据长度{}与形状[{},{}]不匹配",
+            data.len(),
+            rows,
+            cols
+        )));
+    }
+    let tensor_data = TensorData::from(data);
+    let tensor =
+        Tensor::<Backend, 1>::from_data(tensor_data, &default_device()).reshape([rows, cols]);
+    Ok(tensor)
+}
+
+/// 从 flat &[f32] 创建 XYZ Tensor2，形状为 [N, 3]
+pub fn xyz_from_slice(data: &[f32]) -> Result<Tensor2> {
+    if data.len() % 3 != 0 {
+        return Err(PointCloudError::TensorShapeError(
+            "XYZ数据长度必须是3的倍数".to_string(),
+        ));
+    }
+    if data.is_empty() {
+        return Err(PointCloudError::TensorShapeError("XYZ数据为空".to_string()));
+    }
+    let rows = data.len() / 3;
+    tensor2_from_slice(data, rows, 3)
+}
+
 /// 检查XYZ张量维度
 pub fn validate_xyz_shape(xyz: &[Vec<f32>]) -> Result<()> {
     if xyz.is_empty() {

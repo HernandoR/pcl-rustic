@@ -37,6 +37,26 @@ impl HighPerformancePointCloud {
         }
     }
 
+    // ============ 从 Tensor 直接初始化（零拷贝内部传递）============
+
+    /// 从 XYZ Tensor2 直接初始化（内部使用，接受已创建的 Tensor）
+    pub fn from_tensor_xyz(xyz: Tensor2) -> Result<Self> {
+        let cols = tensor::tensor2_cols(&xyz);
+        if cols != 3 {
+            return Err(format!("XYZ张量列数必须为3，实际为{}", cols).into());
+        }
+        Ok(Self {
+            xyz,
+            intensity: None,
+            rgb_r: None,
+            rgb_g: None,
+            rgb_b: None,
+            attributes: HashMap::new(),
+        })
+    }
+
+    // ============ 原有 Vec 接口（保留向后兼容）============
+
     /// 从XYZ张量初始化点云
     /// xyz: [M,3]形状的坐标矩阵
     pub fn from_xyz(xyz: Vec<Vec<f32>>) -> Result<Self> {
@@ -50,75 +70,6 @@ impl HighPerformancePointCloud {
             rgb_r: None,
             rgb_g: None,
             rgb_b: None,
-            attributes: HashMap::new(),
-        })
-    }
-
-    /// 从XYZ和intensity初始化
-    pub fn from_xyz_intensity(xyz: Vec<Vec<f32>>, intensity: Vec<f32>) -> Result<Self> {
-        tensor::validate_xyz_shape(&xyz)?;
-        let point_count = xyz.len();
-        tensor::validate_intensity_shape(&intensity, point_count)?;
-
-        let xyz = tensor::xyz_to_tensor(xyz)?;
-        let intensity = tensor::intensity_to_tensor(intensity);
-
-        Ok(Self {
-            xyz,
-            intensity: Some(intensity),
-            rgb_r: None,
-            rgb_g: None,
-            rgb_b: None,
-            attributes: HashMap::new(),
-        })
-    }
-
-    /// 从XYZ和RGB初始化（3个独立通道）
-    pub fn from_xyz_rgb(xyz: Vec<Vec<f32>>, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> Result<Self> {
-        tensor::validate_xyz_shape(&xyz)?;
-        let point_count = xyz.len();
-
-        tensor::validate_rgb_channel_shape(&r, point_count)?;
-        tensor::validate_rgb_channel_shape(&g, point_count)?;
-        tensor::validate_rgb_channel_shape(&b, point_count)?;
-
-        let xyz = tensor::xyz_to_tensor(xyz)?;
-
-        Ok(Self {
-            xyz,
-            intensity: None,
-            rgb_r: Some(tensor::rgb_channel_to_tensor(r)),
-            rgb_g: Some(tensor::rgb_channel_to_tensor(g)),
-            rgb_b: Some(tensor::rgb_channel_to_tensor(b)),
-            attributes: HashMap::new(),
-        })
-    }
-
-    /// 从XYZ、intensity和RGB初始化（3个独立通道）
-    pub fn from_xyz_intensity_rgb(
-        xyz: Vec<Vec<f32>>,
-        intensity: Vec<f32>,
-        r: Vec<u8>,
-        g: Vec<u8>,
-        b: Vec<u8>,
-    ) -> Result<Self> {
-        tensor::validate_xyz_shape(&xyz)?;
-        let point_count = xyz.len();
-        tensor::validate_intensity_shape(&intensity, point_count)?;
-
-        tensor::validate_rgb_channel_shape(&r, point_count)?;
-        tensor::validate_rgb_channel_shape(&g, point_count)?;
-        tensor::validate_rgb_channel_shape(&b, point_count)?;
-
-        let xyz = tensor::xyz_to_tensor(xyz)?;
-        let intensity = tensor::intensity_to_tensor(intensity);
-
-        Ok(Self {
-            xyz,
-            intensity: Some(intensity),
-            rgb_r: Some(tensor::rgb_channel_to_tensor(r)),
-            rgb_g: Some(tensor::rgb_channel_to_tensor(g)),
-            rgb_b: Some(tensor::rgb_channel_to_tensor(b)),
             attributes: HashMap::new(),
         })
     }
