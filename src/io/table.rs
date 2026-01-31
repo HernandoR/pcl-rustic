@@ -41,23 +41,33 @@ impl TableColumns {
         rgb_b: Option<String>,
     ) -> Self {
         let mut cols = TableColumns::default();
-        if let Some(v) = x { cols.x = v; }
-        if let Some(v) = y { cols.y = v; }
-        if let Some(v) = z { cols.z = v; }
-        if intensity.is_some() { cols.intensity = intensity; }
-        if rgb_r.is_some() { cols.rgb_r = rgb_r; }
-        if rgb_g.is_some() { cols.rgb_g = rgb_g; }
-        if rgb_b.is_some() { cols.rgb_b = rgb_b; }
+        if let Some(v) = x {
+            cols.x = v;
+        }
+        if let Some(v) = y {
+            cols.y = v;
+        }
+        if let Some(v) = z {
+            cols.z = v;
+        }
+        if intensity.is_some() {
+            cols.intensity = intensity;
+        }
+        if rgb_r.is_some() {
+            cols.rgb_r = rgb_r;
+        }
+        if rgb_g.is_some() {
+            cols.rgb_g = rgb_g;
+        }
+        if rgb_b.is_some() {
+            cols.rgb_b = rgb_b;
+        }
         cols
     }
 }
 
 impl HighPerformancePointCloud {
-    pub fn from_table_csv(
-        path: &str,
-        delimiter: u8,
-        columns: TableColumns,
-    ) -> Result<Self> {
+    pub fn from_table_csv(path: &str, delimiter: u8, columns: TableColumns) -> Result<Self> {
         let df = CsvReadOptions::default()
             .with_has_header(true)
             .map_parse_options(|opts| opts.with_separator(delimiter))
@@ -76,12 +86,7 @@ impl HighPerformancePointCloud {
         from_dataframe(df, columns)
     }
 
-    pub fn to_table_csv(
-        &self,
-        path: &str,
-        delimiter: u8,
-        columns: TableColumns,
-    ) -> Result<()> {
+    pub fn to_table_csv(&self, path: &str, delimiter: u8, columns: TableColumns) -> Result<()> {
         let mut df = to_dataframe(self, columns)?;
         let file = File::create(path).map_err(PointCloudError::IoError)?;
         CsvWriter::new(file)
@@ -135,7 +140,10 @@ fn from_dataframe(df: DataFrame, columns: TableColumns) -> Result<HighPerformanc
             let r = get_u8_col(&df, rn)?;
             let g = get_u8_col(&df, gn)?;
             let b = get_u8_col(&df, bn)?;
-            if r.len() == pc.point_count() && g.len() == pc.point_count() && b.len() == pc.point_count() {
+            if r.len() == pc.point_count()
+                && g.len() == pc.point_count()
+                && b.len() == pc.point_count()
+            {
                 pc.set_rgb(r, g, b)?;
             }
         }
@@ -182,7 +190,9 @@ fn to_dataframe(pc: &HighPerformancePointCloud, columns: TableColumns) -> Result
 }
 
 fn get_f32_col(df: &DataFrame, name: &str) -> Result<Vec<f32>> {
-    let series = df.column(name).map_err(|_| PointCloudError::ParseError(format!("缺少列: {}", name)))?;
+    let series = df
+        .column(name)
+        .map_err(|_| PointCloudError::ParseError(format!("缺少列: {}", name)))?;
     if let Ok(col) = series.f32() {
         return Ok(col.into_no_null_iter().collect());
     }
@@ -199,7 +209,9 @@ fn get_f32_col(df: &DataFrame, name: &str) -> Result<Vec<f32>> {
 }
 
 fn get_u8_col(df: &DataFrame, name: &str) -> Result<Vec<u8>> {
-    let series = df.column(name).map_err(|_| PointCloudError::ParseError(format!("缺少列: {}", name)))?;
+    let series = df
+        .column(name)
+        .map_err(|_| PointCloudError::ParseError(format!("缺少列: {}", name)))?;
     if let Ok(col) = series.u8() {
         return Ok(col.into_no_null_iter().collect());
     }
@@ -207,10 +219,16 @@ fn get_u8_col(df: &DataFrame, name: &str) -> Result<Vec<u8>> {
         return Ok(col.into_no_null_iter().map(|v| (v >> 8) as u8).collect());
     }
     if let Ok(col) = series.i64() {
-        return Ok(col.into_no_null_iter().map(|v| v.clamp(0, 255) as u8).collect());
+        return Ok(col
+            .into_no_null_iter()
+            .map(|v| v.clamp(0, 255) as u8)
+            .collect());
     }
     if let Ok(col) = series.i32() {
-        return Ok(col.into_no_null_iter().map(|v| v.clamp(0, 255) as u8).collect());
+        return Ok(col
+            .into_no_null_iter()
+            .map(|v| v.clamp(0, 255) as u8)
+            .collect());
     }
     Err(PointCloudError::ParseError(format!("列{}类型不支持", name)))
 }

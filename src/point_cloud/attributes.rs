@@ -23,7 +23,8 @@ impl HighPerformancePointCloud {
                     name,
                     self.point_count(),
                     data.len()
-                ).into());
+                )
+                .into());
             }
         }
 

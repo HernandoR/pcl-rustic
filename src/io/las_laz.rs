@@ -2,8 +2,8 @@
 use crate::point_cloud::core::HighPerformancePointCloud;
 use crate::traits::{PointCloudCore, PointCloudProperties};
 use crate::utils::error::{PointCloudError, Result};
-use las::{Reader, Writer, Builder, Point, Color};
 use las::point::Format;
+use las::{Builder, Color, Point, Reader, Writer};
 use std::fs;
 
 impl HighPerformancePointCloud {

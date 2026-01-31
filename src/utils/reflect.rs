@@ -1,6 +1,6 @@
+use crate::utils::error::Result;
 /// 反射工具：实现下采样的批量grouping逻辑
 use std::collections::HashMap;
-use crate::utils::error::Result;
 
 /// 通过反射和量化实现体素分组
 /// 将点云按照给定的voxel_size进行分组
@@ -90,4 +90,3 @@ pub fn find_closest_to_centroid(indices: &[usize], xyz: &[Vec<f32>]) -> Result<u
 
     Ok(closest_idx)
 }
-
