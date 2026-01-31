@@ -12,56 +12,16 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
-  # Linting and formatting checks
-  lint:
-    name: Lint and Format Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          add-job-id-key: "false"
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-
-      - name: Cache pre-commit
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pre-commit
-          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
-
-      - name: Install pre-commit
-        run: pip install pre-commit
-
-      - name: Run pre-commit
-        run: pre-commit run --all-files
-
-      - name: Run rustfmt
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
   # Run tests on multiple platforms and Python versions
   test:
     name: Test / ${{ matrix.platform.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.platform.os }}
-    needs: lint
     strategy:
       fail-fast: false
       matrix:
         platform:
           - os: "cirun-gpu-ubuntu-runner--${{ github.run_id }}"
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v6
@@ -208,7 +168,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.13'
+          python-version: "3.13"
           architecture: ${{ matrix.platform.python_arch }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -227,7 +187,7 @@ jobs:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.14t'
+          python-version: "3.14t"
           architecture: ${{ matrix.platform.python_arch }}
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
