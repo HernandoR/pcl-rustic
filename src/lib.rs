@@ -39,7 +39,7 @@ impl PyPointCloud {
     /// xyz: 形状为 [N, 3] 的 2D numpy 数组
     #[staticmethod]
     fn from_xyz(xyz: &Bound<'_, pyo3::PyAny>) -> PyResult<Self> {
-        let inner = HighPerformancePointCloud::from_xyz_array(xyz).map_err(|e| PyErr::from(e))?;
+        let inner = HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -52,10 +52,10 @@ impl PyPointCloud {
         intensity: &Bound<'_, pyo3::PyAny>,
     ) -> PyResult<Self> {
         let mut inner =
-            HighPerformancePointCloud::from_xyz_array(xyz).map_err(|e| PyErr::from(e))?;
+            HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
         inner
             .set_intensity_from_array(intensity)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -70,10 +70,10 @@ impl PyPointCloud {
         b: &Bound<'_, pyo3::PyAny>,
     ) -> PyResult<Self> {
         let mut inner =
-            HighPerformancePointCloud::from_xyz_array(xyz).map_err(|e| PyErr::from(e))?;
+            HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
         inner
             .set_rgb_from_arrays(r, g, b)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -87,20 +87,20 @@ impl PyPointCloud {
         b: &Bound<'_, pyo3::PyAny>,
     ) -> PyResult<Self> {
         let mut inner =
-            HighPerformancePointCloud::from_xyz_array(xyz).map_err(|e| PyErr::from(e))?;
+            HighPerformancePointCloud::from_xyz_array(xyz).map_err(PyErr::from)?;
         inner
             .set_intensity_from_array(intensity)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         inner
             .set_rgb_from_arrays(r, g, b)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
     /// 从numpy字典创建点云
     #[staticmethod]
     fn from_dict(py: Python, data: &Bound<'_, PyDict>) -> PyResult<Self> {
-        let inner = HighPerformancePointCloud::from_numpy(py, data).map_err(|e| PyErr::from(e))?;
+        let inner = HighPerformancePointCloud::from_numpy(py, data).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -183,7 +183,7 @@ impl PyPointCloud {
     fn set_intensity(&mut self, intensity: &Bound<'_, pyo3::PyAny>) -> PyResult<()> {
         self.inner
             .set_intensity_from_array(intensity)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -196,7 +196,7 @@ impl PyPointCloud {
     ) -> PyResult<()> {
         self.inner
             .set_rgb_from_arrays(r, g, b)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -260,7 +260,7 @@ impl PyPointCloud {
     fn remove_attribute(&mut self, name: &str) -> PyResult<()> {
         self.inner
             .remove_attribute(name)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -276,7 +276,7 @@ impl PyPointCloud {
     ) -> PyResult<()> {
         self.inner
             .set_all_attributes(attributes)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -304,13 +304,13 @@ impl PyPointCloud {
     /// 删除文件
     #[staticmethod]
     fn delete_file(path: &str) -> PyResult<()> {
-        HighPerformancePointCloud::delete_file(path).map_err(|e| PyErr::from(e))?;
+        HighPerformancePointCloud::delete_file(path).map_err(PyErr::from)?;
         Ok(())
     }
 
     /// 坐标变换（矩阵）
     fn transform(&self, matrix: Vec<Vec<f32>>) -> PyResult<Self> {
-        let result = self.inner.transform(matrix).map_err(|e| PyErr::from(e))?;
+        let result = self.inner.transform(matrix).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner: result })
     }
 
@@ -319,7 +319,7 @@ impl PyPointCloud {
         let result = self
             .inner
             .rigid_transform(rotation, translation)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner: result })
     }
 
@@ -334,14 +334,14 @@ impl PyPointCloud {
         let result = self
             .inner
             .voxel_downsample(voxel_size, strategy_impl)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner: result })
     }
 
     /// 从LAS/LAZ文件读取
     #[staticmethod]
     fn from_las(path: &str) -> PyResult<Self> {
-        let inner = HighPerformancePointCloud::from_las_laz(path).map_err(|e| PyErr::from(e))?;
+        let inner = HighPerformancePointCloud::from_las_laz(path).map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -349,7 +349,7 @@ impl PyPointCloud {
     fn to_las(&self, path: &str, compress: bool) -> PyResult<()> {
         self.inner
             .to_las(path, compress)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -379,7 +379,7 @@ impl PyPointCloud {
     ) -> PyResult<Self> {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         let inner = HighPerformancePointCloud::from_table_csv(path, delimiter, columns)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -407,7 +407,7 @@ impl PyPointCloud {
     ) -> PyResult<Self> {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         let inner = HighPerformancePointCloud::from_table_parquet(path, columns)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -438,7 +438,7 @@ impl PyPointCloud {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner
             .to_table_csv(path, delimiter, columns)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -467,7 +467,7 @@ impl PyPointCloud {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner
             .to_table_parquet(path, columns)
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -495,7 +495,7 @@ impl PyPointCloud {
     ) -> PyResult<Self> {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         let inner = HighPerformancePointCloud::load_from_file(path, Some(columns))
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(PyPointCloud { inner })
     }
 
@@ -524,7 +524,7 @@ impl PyPointCloud {
         let columns = io::table::TableColumns::resolve(x, y, z, intensity, rgb_r, rgb_g, rgb_b);
         self.inner
             .save_to_file(path, Some(columns))
-            .map_err(|e| PyErr::from(e))?;
+            .map_err(PyErr::from)?;
         Ok(())
     }
 
@@ -535,7 +535,7 @@ impl PyPointCloud {
 
     /// 转换为Python字典（包含numpy数组）
     fn to_dict(&self, py: Python) -> PyResult<PyObject> {
-        self.inner.to_numpy(py).map_err(|e| PyErr::from(e))
+        self.inner.to_numpy(py).map_err(PyErr::from)
     }
 
     /// 创建点云副本

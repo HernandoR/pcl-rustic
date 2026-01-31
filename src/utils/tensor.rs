@@ -42,7 +42,7 @@ pub fn tensor2_from_slice(data: &[f32], rows: usize, cols: usize) -> Result<Tens
 
 /// 从 flat &[f32] 创建 XYZ Tensor2，形状为 [N, 3]
 pub fn xyz_from_slice(data: &[f32]) -> Result<Tensor2> {
-    if data.len() % 3 != 0 {
+    if !data.len().is_multiple_of(3) {
         return Err(PointCloudError::TensorShapeError(
             "XYZ数据长度必须是3的倍数".to_string(),
         ));

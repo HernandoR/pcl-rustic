@@ -34,7 +34,7 @@ pub fn group_points_by_voxel(
         // 将点索引添加到对应体素组
         voxel_groups
             .entry(voxel_key)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 

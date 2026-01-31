@@ -145,7 +145,7 @@ impl HighPerformancePointCloud {
             total += tensor::tensor1_len(b) * std::mem::size_of::<f32>();
         }
 
-        for (_, data) in &self.attributes {
+        for data in self.attributes.values() {
             total += tensor::tensor1_len(data) * std::mem::size_of::<f32>();
         }
 

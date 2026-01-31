@@ -9,7 +9,7 @@ use std::fs;
 impl HighPerformancePointCloud {
     /// 从LAS/LAZ文件读取（自动检测压缩）
     pub fn from_las_laz(path: &str) -> Result<Self> {
-        if !fs::metadata(path).is_ok() {
+        if fs::metadata(path).is_err() {
             return Err(format!("文件不存在: {}", path).into());
         }
 
@@ -111,7 +111,7 @@ impl HighPerformancePointCloud {
 
     /// 删除LAS/LAZ文件
     pub fn delete_file(path: &str) -> Result<()> {
-        if !fs::metadata(path).is_ok() {
+        if fs::metadata(path).is_err() {
             return Err(format!("文件不存在: {}", path).into());
         }
 
