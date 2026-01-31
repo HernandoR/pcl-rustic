@@ -70,6 +70,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -114,6 +119,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -151,6 +161,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -195,6 +210,11 @@ jobs:
         with:
           python-version: '3.13'
           architecture: ${{ matrix.platform.python_arch }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -238,6 +258,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -267,6 +292,11 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -300,6 +330,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.platform.python-version }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:

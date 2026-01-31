@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
   pull_request:
   workflow_dispatch:
 
@@ -67,7 +67,7 @@ jobs:
           - os: ubuntu-22.04
           - os: macos-latest
           - os: windows-latest
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v6
@@ -75,6 +75,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -120,6 +125,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -157,6 +167,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -199,8 +214,13 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.13'
+          python-version: "3.13"
           architecture: ${{ matrix.platform.python_arch }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -213,7 +233,7 @@ jobs:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.14t'
+          python-version: "3.14t"
           architecture: ${{ matrix.platform.python_arch }}
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
@@ -244,6 +264,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -273,6 +298,11 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v6
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -308,7 +338,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.platform.python-version }}
-
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           add-job-id-key: "false"
@@ -358,7 +391,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: 'wheels-*/*'
+          subject-path: "wheels-*/*"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
