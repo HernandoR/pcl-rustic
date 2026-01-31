@@ -36,7 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-
+          shared-key: ${{ matrix.platform.os }}
       - name: Cache pre-commit
         uses: actions/cache@v4
         with:
