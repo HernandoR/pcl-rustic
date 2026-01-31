@@ -24,7 +24,7 @@ polars = { version = "^0.43.1", features = ["csv", "parquet"] }
 # NumPy interop
 numpy = "^0.22"
 # Python bindings
-pyo3 = { version = "^0.22.1", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "^0.23.5", features = ["extension-module", "abi3-py39"] }
 
 # Error handling
 thiserror = "^2.0"
