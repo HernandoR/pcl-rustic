@@ -1,95 +1,149 @@
-#!/usr/bin/env python3
 """
-PCL Rustic 测试数据生成工具
+PCL Rustic pytest 配置和 fixtures
 
-生成小规模的LAS/CSV测试数据集
+提供测试数据生成器和共享 fixtures
 """
 
-import os
-import csv
-from pathlib import Path
+from __future__ import annotations
+
+from typing import Optional, Tuple, Dict
+
+import pytest
+import numpy as np
+from loguru import logger
 
 
-def generate_test_csv(
-    filename: str = "tests/data/test_points.csv", num_points: int = 100
-):
-    """生成CSV格式的测试点云数据"""
-
-    Path("tests/data").mkdir(parents=True, exist_ok=True)
-
-    with open(filename, "w", newline="") as f:
-        writer = csv.writer(f, delimiter=",")
-        # 写入数据（无header）
-        for i in range(num_points):
-            x = i * 0.1
-            y = i * 0.1
-            z = i * 0.05
-            writer.writerow([f"{x:.1f}", f"{y:.1f}", f"{z:.1f}"])
-
-    print(f"✓ 生成CSV测试数据: {filename} ({num_points}个点)")
+# 配置 loguru 用于测试输出
+logger.remove()
+logger.add(
+    lambda msg: print(msg, end=""),
+    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
+    level="INFO",
+    colorize=True,
+)
 
 
-def generate_test_las(
-    filename: str = "tests/data/test_points.las", num_points: int = 100
-):
-    """
-    生成LAS格式的测试点云数据
-    （需要las-rs库）
-    """
+def pytest_configure(config):
+    """注册自定义标记"""
+    config.addinivalue_line("markers", "slow: 标记为慢速测试（100M+ 点）")
 
-    try:
-        import laspy
-    except ImportError:
-        print("⚠ laspy未安装，跳过LAS生成")
-        print("  安装: pip install laspy")
+
+def pytest_addoption(parser):
+    """添加命令行选项"""
+    parser.addoption(
+        "--run-slow",
+        action="store_true",
+        default=False,
+        help="运行慢速测试（100M+ 点云）",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """跳过慢速测试（除非指定 --run-slow）"""
+    if config.getoption("--run-slow"):
         return
 
-    Path("tests/data").mkdir(parents=True, exist_ok=True)
-
-    # 创建LAS文件
-    las = laspy.create()
-
-    # 生成点云数据
-    points_x = [i * 0.1 for i in range(num_points)]
-    points_y = [i * 0.1 for i in range(num_points)]
-    points_z = [i * 0.05 for i in range(num_points)]
-
-    # 设置坐标
-    las.x = points_x
-    las.y = points_y
-    las.z = points_z
-
-    # 设置强度（如果支持）
-    if hasattr(las, "intensity"):
-        las.intensity = [i * 100 for i in range(num_points)]
-
-    # 保存
-    las.write(filename)
-    print(f"✓ 生成LAS测试数据: {filename} ({num_points}个点)")
+    skip_slow = pytest.mark.skip(reason="需要 --run-slow 选项来运行")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip_slow)
 
 
-def generate_all_test_data():
-    """生成所有测试数据"""
-    print("\n生成PCL Rustic测试数据集")
-    print("=" * 50)
-
-    # 小规模测试数据
-    generate_test_csv("tests/data/small.csv", 10)
-    generate_test_csv("tests/data/medium.csv", 100)
-
-    # 中等规模测试数据
-    generate_test_csv("tests/data/large.csv", 1000)
-
-    # LAS测试数据
-    generate_test_las("tests/data/test_small.las", 10)
-    generate_test_las("tests/data/test_medium.las", 100)
-
-    print("\n✓ 所有测试数据生成完成！")
-    print("\n数据文件位置:")
-    for f in sorted(Path("tests/data").glob("*")):
-        size = os.path.getsize(f) / 1024
-        print(f"  - {f.relative_to('tests/data')}: {size:.1f} KB")
+@pytest.fixture
+def small_xyz() -> np.ndarray:
+    """小型 XYZ 数据（10 点）"""
+    return np.array(
+        [[float(i), float(i), float(i) * 0.5] for i in range(10)],
+        dtype=np.float32,
+    )
 
 
-if __name__ == "__main__":
-    generate_all_test_data()
+@pytest.fixture
+def medium_xyz() -> np.ndarray:
+    """中型 XYZ 数据（1000 点）"""
+    return np.random.randn(1000, 3).astype(np.float32)
+
+
+@pytest.fixture
+def large_xyz() -> np.ndarray:
+    """大型 XYZ 数据（100000 点）"""
+    return np.random.randn(100000, 3).astype(np.float32) * 100
+
+
+@pytest.fixture
+def gaussian_point_cloud_10m() -> dict[str, np.ndarray]:
+    """10M 点高斯分布点云"""
+    return _generate_gaussian_point_cloud(10_000_000)
+
+
+@pytest.fixture
+def gaussian_point_cloud_1m() -> dict[str, np.ndarray]:
+    """1M 点高斯分布点云（用于快速测试）"""
+    return _generate_gaussian_point_cloud(1_000_000)
+
+
+def _generate_gaussian_point_cloud(
+    num_points: int,
+    x_range: Tuple[float, float] = (-100, 250),
+    y_range: Tuple[float, float] = (-100, 250),
+    z_range: Tuple[float, float] = (-3, 7),
+    seed: Optional[int] = None,
+) -> Dict[str, np.ndarray]:
+    """
+    生成高斯分布的点云数据
+
+    6 个维度: x, y, z, intensity, d1, d2
+
+    Args:
+        num_points: 点数
+        x_range: X 坐标范围
+        y_range: Y 坐标范围
+        z_range: Z 坐标范围
+        seed: 随机种子
+
+    Returns:
+        包含 xyz, intensity, d1, d2 的字典（全部为 float32）
+    """
+    rng = np.random.default_rng(seed)
+
+    # 随机中心点
+    center_x = rng.uniform(x_range[0] + 50, x_range[1] - 50)
+    center_y = rng.uniform(y_range[0] + 50, y_range[1] - 50)
+    center_z = rng.uniform(z_range[0] + 1, z_range[1] - 1)
+
+    # 随机 sigma（标准差）
+    sigma_xy = rng.uniform(30, 80)
+    sigma_z = rng.uniform(1, 3)
+
+    # 生成高斯分布坐标
+    x = rng.normal(center_x, sigma_xy, num_points).astype(np.float32)
+    y = rng.normal(center_y, sigma_xy, num_points).astype(np.float32)
+    z = rng.normal(center_z, sigma_z, num_points).astype(np.float32)
+
+    # 裁剪到范围内
+    x = np.clip(x, x_range[0], x_range[1])
+    y = np.clip(y, y_range[0], y_range[1])
+    z = np.clip(z, z_range[0], z_range[1])
+
+    # 合并为 [N, 3] 数组
+    xyz = np.column_stack([x, y, z]).astype(np.float32)
+
+    # 生成 intensity（距离衰减）
+    dist = np.sqrt((x - center_x) ** 2 + (y - center_y) ** 2 + (z - center_z) ** 2)
+    intensity = (1.0 / (1.0 + dist / sigma_xy) * 255).astype(np.float32)
+
+    # 生成自定义属性 d1, d2
+    d1 = rng.normal(0, 1, num_points).astype(np.float32)
+    d2 = rng.normal(0, 1, num_points).astype(np.float32)
+
+    return {
+        "xyz": xyz,
+        "intensity": intensity,
+        "d1": d1,
+        "d2": d2,
+        "metadata": {
+            "center": (center_x, center_y, center_z),
+            "sigma_xy": sigma_xy,
+            "sigma_z": sigma_z,
+        },
+    }
