@@ -292,10 +292,10 @@ class TestEdgeCases:
         assert pc.point_count() == n
 
     def test_empty_downsample(self):
-        """测试空点云下采样"""
+        """测试空点云下采样应该抛出错误"""
         pc = PointCloud()
-        downsampled = pc.voxel_downsample(1.0, DownsampleStrategy.RANDOM)
-        assert downsampled.point_count() == 0
+        with pytest.raises(ValueError):
+            pc.voxel_downsample(1.0, DownsampleStrategy.RANDOM)
 
     def test_zero_points_properties(self):
         """测试空点云的属性操作"""

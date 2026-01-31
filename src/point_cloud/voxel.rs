@@ -1,7 +1,7 @@
 /// 体素下采样：反射分组、2种采样策略实现
 use crate::point_cloud::core::HighPerformancePointCloud;
-use crate::traits::{DownsampleStrategy, PointCloudProperties, VoxelDownsample};
-use crate::utils::error::Result;
+use crate::traits::{DownsampleStrategy, PointCloudCore, PointCloudProperties, VoxelDownsample};
+use crate::utils::error::{PointCloudError, Result};
 use crate::utils::reflect;
 use crate::utils::tensor;
 
@@ -32,17 +32,22 @@ impl VoxelDownsample for HighPerformancePointCloud {
     fn voxel_downsample(
         &self,
         voxel_size: f32,
-        strategy: Box<dyn DownsampleStrategy>,
+        _strategy: Box<dyn DownsampleStrategy>,
     ) -> Result<Self> {
+        // 检查点数是否为0
+        if self.point_count() == 0 {
+            return Err(PointCloudError::InvalidParameter(
+                "无法对空点云进行下采样".to_string(),
+            ));
+        }
+
         if voxel_size <= 0.0 {
-            return Err("voxel_size必须大于0".into());
+            return Err(PointCloudError::InvalidParameter(
+                "voxel_size必须大于0".to_string(),
+            ));
         }
 
         let xyz_ref = tensor::tensor2_to_vec(self.xyz_ref());
-
-        if xyz_ref.is_empty() {
-            return Ok(self.clone());
-        }
 
         // 第一步：通过反射分组
         let voxel_groups = reflect::group_points_by_voxel(&xyz_ref, voxel_size)?;
@@ -52,7 +57,7 @@ impl VoxelDownsample for HighPerformancePointCloud {
 
         for (_, indices) in voxel_groups.iter() {
             if !indices.is_empty() {
-                let selected = strategy.select_representative(indices.clone(), &xyz_ref)?;
+                let selected = _strategy.select_representative(indices.clone(), &xyz_ref)?;
                 selected_indices.push(selected);
             }
         }
