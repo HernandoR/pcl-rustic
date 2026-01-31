@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Core tensor computation
-burn = { version = "0.20.1", features = ["std", "wgpu","ndarray"] }
+burn = { version = "0.20.1", features = ["std", "wgpu","ndarray","candle"] }
 ndarray = "^0.17"
 
 # File I/O

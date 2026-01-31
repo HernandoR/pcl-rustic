@@ -1,21 +1,26 @@
 use crate::utils::error::{PointCloudError, Result};
-use burn::backend::wgpu::{Wgpu, WgpuDevice};
 /// burn张量工具函数：类型转换、维度检查等
+// use burn::backend::wgpu::{Wgpu, WgpuDevice};
+// use burn::tensor::{Tensor, TensorData};
+// pub type Backend = Wgpu<f32, i32>;
+// pub type Device = WgpuDevice;
+// pub fn default_device() -> Device {
+//     WgpuDevice::default()
+// }
+use burn::backend::candle::{Candle, CandleDevice};
 use burn::tensor::{Tensor, TensorData};
-
-pub type Backend = Wgpu<f32, i32>;
-pub type Tensor1 = Tensor<Backend, 1>;
-pub type Tensor2 = Tensor<Backend, 2>;
-pub type Device = WgpuDevice;
-
+pub type Backend = Candle<f32, i32>;
+pub type Device = CandleDevice;
 pub fn default_device() -> Device {
-    WgpuDevice::default()
+    CandleDevice::default()
 }
 
 pub fn empty_xyz() -> Tensor2 {
     Tensor::<Backend, 2>::zeros([0, 3], &default_device())
 }
 
+pub type Tensor1 = Tensor<Backend, 1>;
+pub type Tensor2 = Tensor<Backend, 2>;
 // ============ 从 slice 创建 Tensor（避免 Vec 复制）============
 
 /// 从 &[f32] 创建 Tensor1
