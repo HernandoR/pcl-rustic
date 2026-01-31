@@ -1,8 +1,9 @@
 # PCL Rustic - 高性能 Python 点云运算库
 
-![CI](https://github.com/YOUR_USERNAME/pcl-rustic/workflows/CI/badge.svg)
-![Python](https://img.shields.io/badge/Python-3.9+-blue)
-![Rust](https://img.shields.io/badge/Rust-1.70+-orange)
+[![CI](https://github.com/YOUR_USERNAME/pcl-rustic/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/pcl-rustic/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/pcl-rustic?label=PyPI)](https://pypi.org/project/pcl-rustic/)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.70+-orange)](https://www.rust-lang.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **PCL Rustic** 是一个基于 Rust + PyO3 的高性能 Python 点云处理库，使用 [Burn](https://github.com/tracel-ai/burn) 张量框架实现批量运算，支持 CPU/GPU 加速。
@@ -32,18 +33,28 @@ pip install pcl-rustic
 
 ### 从源码构建
 
+需要 Python 3.10+ 和 Rust 1.70+
+
 ```bash
 # 克隆仓库
 git clone https://github.com/YOUR_USERNAME/pcl-rustic.git
 cd pcl-rustic
 
-# 使用 uv 构建
+# 使用 uv 构建（推荐）
 uv build
 
 # 或使用 maturin
 pip install maturin
 maturin develop --release
 ```
+
+### 支持的 Python 版本
+
+- Python 3.10
+- Python 3.11
+- Python 3.12
+- Python 3.13
+- Python 3.14t (free-threaded)
 
 ## 🚀 快速开始
 
@@ -298,81 +309,157 @@ just docs-deploy
 
 ## 🔄 CI/CD
 
-项目使用 GitHub Actions 进行持续集成，采用多阶段工作流设计。
+项目使用 GitHub Actions 进行持续集成和发布，采用完整的多平台、多版本测试和自动化构建流程。
 
 ### 工作流架构
 
 ```mermaid
 graph LR
-    A[Pre-commit] --> B[Test]
-    B --> C[Benchmark]
-    D[Release Tag] --> E[Build Wheels]
-    E --> F[Create Release]
-    F --> G[Deploy Docs]
+    A["PR/Push"] --> B["Lint & Format"]
+    B --> C["Test\n(Ubuntu/macOS/Windows\nPython 3.10-3.13)"]
+    C --> D["Build Wheels\n(Linux/musllinux/macOS/Windows)"]
+    D --> E["Benchmark\n(Optional)"]
+    E --> F["Release to PyPI\n(On Tags)"]
+    F --> G["Deploy Docs"]
 ```
 
-#### 1. Pre-commit Checks (`.github/workflows/pre-commit.yml`)
-   - **触发**：PR 或 push 到 main/develop
-   - **执行**：代码格式检查（rustfmt, ruff）、linter（clippy）
-   - **手动触发**：支持
+### 工作流详解
 
-#### 2. Test (`.github/workflows/test.yml`)
-   - **触发**：push 到 main，或 pre-commit 通过后
-   - **执行**：多平台测试（Ubuntu/macOS/Windows × Python 3.9-3.12）
-   - **依赖**：Pre-commit Checks
-   - **手动触发**：支持
-
-#### 3. Benchmark (`.github/workflows/benchmark.yml`)
-   - **触发**：Release 标签（`v*.*.*`），或 test 通过后
-   - **执行**：跨平台性能基准测试
-   - **依赖**：Test
-   - **产物**：性能报告（保留 30 天）
-   - **手动触发**：支持
-
-#### 4. Release (`.github/workflows/release.yml`)
-   - **触发**：推送 Release 标签（`v*.*.*`）
+#### 1. **Lint & Format** (`.github/workflows/test.yml` - lint job)
+   - **触发**：每次 PR、push 到 main、Release 标签
    - **执行**：
-     - 构建所有平台的 wheels
-     - 创建 GitHub Release 并上传 wheels
-     - 构建并部署文档到 GitHub Pages
-     - （可选）发布到 PyPI
-   - **手动触发**：支持
+     - 代码格式检查：`cargo fmt`、`ruff format`
+     - Linter 检查：`cargo clippy`、`pre-commit hooks`
+   - **手动触发**：✅ 支持 (`workflow_dispatch`)
+   - **耗时**：~1-2 分钟
+
+#### 2. **Test** (`.github/workflows/test.yml` - test job)
+   - **触发**：Lint 通过后，或手动触发
+   - **执行**：
+     - 多平台测试：Ubuntu 22.04、macOS latest、Windows latest
+     - 多版本测试：Python 3.10、3.11、3.12、3.13
+     - 跳过慢速测试：使用 `-k "not slow"` 标志
+   - **依赖**：Lint 必须通过
+   - **手动触发**：✅ 支持 (`workflow_dispatch`)
+   - **耗时**：~5-10 分钟（因矩阵配置）
+
+#### 3. **构建 Wheels** (`.github/workflows/test.yml` - linux/musllinux/windows/macos/sdist jobs)
+   - **触发**：Test 通过后
+   - **构建目标**：
+     - **Linux** (x86_64, aarch64)：使用 manylinux/auto
+     - **musllinux** (x86_64, aarch64)：使用 musllinux_1_2
+     - **macOS** (x86_64, aarch64)：支持 Intel/Apple Silicon
+     - **Windows** (x86_64, x86)：支持 64-bit/32-bit
+     - **Source Distribution** (sdist)
+   - **版本支持**：
+     - Python 3.10-3.13 (标准)
+     - Python 3.14t (free-threaded)
+   - **缓存**：使用 sccache 加速编译
+   - **手动触发**：✅ 支持 (作为 Test 依赖)
+   - **产物**：Wheels 上传到 GitHub Artifacts (30 天)
+
+#### 4. **Benchmark** (`.github/workflows/test.yml` - benchmark job)
+   - **触发**：仅在 Release 标签 (`v*.*.*`) 或手动触发
+   - **执行**：
+     - 跨平台性能基准测试：Ubuntu、macOS、Windows
+     - 运行 `test_benchmark.py` 中的完整基准测试
+   - **手动触发**：✅ 支持 (`workflow_dispatch`)
+   - **产物**：性能报告（`benchmark-*.txt`、`test-*.log`），保留 30 天
+   - **条件**：`if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}`
+
+#### 5. **发布到 PyPI** (`.github/workflows/test.yml` - release job)
+   - **触发**：仅在推送 Release 标签 (`v*.*.*`)
+   - **执行**：
+     - 下载所有平台的 wheels
+     - 生成构建物证明 (Build Provenance Attestation)
+     - 使用 `uv publish` 发布到 PyPI
+   - **前置条件**：所有 wheels 和 sdist 构建必须成功
+   - **权限**：`id-token: write`、`contents: write`、`attestations: write`
+   - **环境变量**：`PYPI_API_TOKEN` (GitHub Secrets)
+   - **手动触发**：❌ 不支持（仅标签触发）
+
+#### 6. **部署文档** (`.github/workflows/release.yml`)
+   - **触发**：推送任何 Release 标签 (`v*.*.*`) 或手动触发
+   - **执行**：
+     - 安装依赖：`mkdocs-material`、`mkdocs-git-revision-date-localized-plugin`
+     - 构建文档：`mkdocs build --clean --strict`
+     - 部署到 GitHub Pages
+   - **权限**：`pages: write`、`id-token: write`
+   - **URL**：https://YOUR_USERNAME.github.io/pcl-rustic
+   - **手动触发**：✅ 支持 (`workflow_dispatch`)
+   - **耗时**：~2-3 分钟
 
 ### 发布流程
 
-使用 `just` 命令简化发布流程：
+按以下步骤发布新版本：
 
 ```bash
 # 1. 更新版本号
-# 编辑 Cargo.toml 和 pyproject.toml 中的 version
+# 编辑 Cargo.toml 中的 version
+# 编辑 pyproject.toml 中的 version
 
 # 2. 运行完整发布检查
-just release
+just release          # 运行 fmt + lint + test + build
 
-# 3. 创建 git 标签
-git tag v0.1.0
-git push origin v0.1.0
+# 3. 提交更改
+git add Cargo.toml pyproject.toml
+git commit -m "chore: bump version to vX.Y.Z"
 
-# 4. GitHub Actions 自动执行
-# - 构建 wheels
-# - 创建 Release
-# - 部署文档
+# 4. 创建 Release 标签
+git tag vX.Y.Z
+git push origin main
+git push origin vX.Y.Z
+
+# 5. GitHub Actions 自动执行以下步骤：
+#    - Lint & Format 检查
+#    - 多平台测试 (Ubuntu/macOS/Windows)
+#    - 构建所有平台的 wheels
+#    - 运行基准测试（可选）
+#    - 发布到 PyPI
+#    - 创建 GitHub Release
+#    - 部署文档到 GitHub Pages
 ```
 
-查看最新构建状态：[GitHub Actions](https://github.com/YOUR_USERNAME/pcl-rustic/actions)
+### 查看构建状态
 
-### 文档部署
+- **GitHub Actions**: [github.com/YOUR_USERNAME/pcl-rustic/actions](https://github.com/YOUR_USERNAME/pcl-rustic/actions)
+- **在线文档**: [https://YOUR_USERNAME.github.io/pcl-rustic](https://YOUR_USERNAME.github.io/pcl-rustic)
+- **PyPI**: [pypi.org/project/pcl-rustic](https://pypi.org/project/pcl-rustic)
 
-文档会在 Release 时自动部署到 GitHub Pages：
-- **URL**: https://YOUR_USERNAME.github.io/pcl-rustic
-- **工具**: MkDocs Material
-- **语言**: 中文/英文
+### 环境变量和 Secrets
 
-手动部署文档：
+需要在 GitHub Repository Settings 中配置：
+
+| 环境变量 | 说明 | 用途 |
+|---------|------|------|
+| `PYPI_API_TOKEN` | PyPI API 令牌 | 发布到 PyPI (Trusted Publisher) |
+| `PYTHON_VERSION` | 默认 Python 版本 | CI 中使用的 Python 版本 (默认 3.11) |
+
+### 本地模拟 CI
+
+使用 `just` 命令在本地运行完整的 CI 流程：
 
 ```bash
-just docs-deploy
+# 运行完整的 CI 检查（格式 + Linting + 测试）
+just ci
+
+# 或逐步运行
+just fmt              # 格式化代码
+just lint             # 代码检查
+just test             # 运行测试
+just benchmark        # 运行基准测试
 ```
+
+### 故障排除
+
+**常见问题**：
+
+| 问题 | 原因 | 解决方案 |
+|------|------|--------|
+| Lint 失败 | 代码格式不符合 | 运行 `just fmt` 后 push |
+| Test 失败 | 某个平台或版本不兼容 | 检查 pytest 输出，本地复现 |
+| Wheel 构建失败 | 依赖版本问题 | 检查 Cargo.lock、pyproject.toml |
+| PyPI 发布失败 | Token 过期或权限不足 | 更新 `PYPI_API_TOKEN` Secret |
 
 ## 📊 数据格式要求
 
