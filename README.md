@@ -171,18 +171,70 @@ src/
 
 ## 🔧 开发指南
 
+本项目使用 [just](https://github.com/casey/just) 命令运行器简化开发工作流。
+
 ### 环境设置
 
 ```bash
-# 创建虚拟环境
+# 安装依赖并设置 pre-commit hooks
+just install
+
+# 或手动设置
 uv venv
 uv sync --dev
-
-# 安装 pre-commit hooks
 pre-commit install
+```
 
-# 开发模式构建
-maturin develop --release
+### 使用 justfile
+
+项目包含 `justfile`，提供常用开发命令：
+
+#### 构建相关
+
+```bash
+just dev              # 开发模式构建
+just build            # 生产模式构建
+just wheel            # 构建 wheel 包
+just dist             # 构建源码和 wheel 分发包
+```
+
+#### 测试相关
+
+```bash
+just test             # 运行所有测试
+just test-fast        # 快速测试（跳过慢速测试）
+just benchmark        # 运行性能基准测试
+just test-rust        # 仅运行 Rust 测试
+```
+
+#### 代码质量
+
+```bash
+just fmt              # 格式化代码（Rust + Python）
+just lint             # Linting 检查
+just pre-commit       # 运行所有 pre-commit hooks
+```
+
+#### 文档
+
+```bash
+just docs-serve       # 本地预览文档（http://127.0.0.1:8000）
+just docs-build       # 构建文档到 site/ 目录
+just docs-deploy      # 部署文档到 GitHub Pages
+```
+
+#### 综合命令
+
+```bash
+just release          # 完整发布流程（fmt + lint + test + build + wheel）
+just ci               # 模拟 CI 流程
+just clean            # 清理构建产物
+```
+
+查看所有可用命令：
+
+```bash
+just --list
 ```
 
 ### 代码质量工具
@@ -194,8 +246,8 @@ maturin develop --release
 - **clippy**：Rust linter，捕获常见错误
 
 ```bash
-cargo fmt
-cargo clippy -- -D warnings
+just fmt              # 包含 cargo fmt
+just lint             # 包含 cargo clippy
 ```
 
 #### Python
@@ -203,28 +255,9 @@ cargo clippy -- -D warnings
 - **pre-commit**：Git hook 管理工具
 
 ```bash
-# 手动运行 ruff
-uv run ruff format    # 格式化代码
-uv run ruff check     # 检查代码
-
-# 运行 pre-commit 检查
-pre-commit run --all-files
-```
-
-### 运行测试
-
-```bash
-# 运行所有测试
-uv run pytest tests/ -v
-
-# 运行快速测试（跳过慢速测试）
-uv run pytest tests/ -v -k "not slow"
-
-# 运行基准测试
-uv run pytest tests/test_benchmark.py -v -s
-
-# 运行 Rust 测试
-cargo test --release
+just fmt              # 包含 ruff format
+just lint             # 包含 ruff check
+just pre-commit       # 运行所有检查
 ```
 
 ### 性能基准测试
@@ -232,8 +265,7 @@ cargo test --release
 项目包含完整的性能基准测试，使用高斯分布生成真实点云数据：
 
 ```bash
-# 运行完整基准测试报告
-uv run pytest tests/test_benchmark.py::TestBenchmarkSummary::test_full_benchmark_report -v -s
+just benchmark
 ```
 
 **典型性能（MacBook M1）**：
@@ -247,42 +279,100 @@ uv run pytest tests/test_benchmark.py::TestBenchmarkSummary::test_full_benchmark
 | 50M | 0.15 | 29.4M | 41.2% | 37.9s | 1.3M/s |
 | 50M | 0.20 | 21.0M | 58.0% | 35.5s | 1.4M/s |
 
-### 构建发布
+### 文档
+
+本项目使用 [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) 生成文档。
 
 ```bash
-# 构建 wheel 包
-uv build --wheel
+# 本地预览
+just docs-serve
 
-# 构建所有平台（需要在对应平台上运行）
-uv build
+# 构建静态文件
+just docs-build
+
+# 部署到 GitHub Pages
+just docs-deploy
 ```
+
+访问 [https://YOUR_USERNAME.github.io/pcl-rustic](https://YOUR_USERNAME.github.io/pcl-rustic) 查看在线文档。
 
 ## 🔄 CI/CD
 
-项目使用 GitHub Actions 进行持续集成，采用分阶段工作流设计：
+项目使用 GitHub Actions 进行持续集成，采用多阶段工作流设计。
 
 ### 工作流架构
 
-1. **Pre-commit Checks** (`.github/workflows/pre-commit.yml`)
-   - 触发：每次 PR 或 push 到 main/develop
-   - 执行：代码格式检查（rustfmt, ruff）、linter（clippy）
-   - 手动触发：支持
+```mermaid
+graph LR
+    A[Pre-commit] --> B[Test]
+    B --> C[Benchmark]
+    D[Release Tag] --> E[Build Wheels]
+    E --> F[Create Release]
+    F --> G[Deploy Docs]
+```
 
-2. **Test** (`.github/workflows/test.yml`)
-   - 触发：push 到 main 分支，或 pre-commit 通过后
-   - 执行：多平台测试（Ubuntu/macOS/Windows × Python 3.9-3.12）
-   - 依赖：Pre-commit Checks
-   - 手动触发：支持
+#### 1. Pre-commit Checks (`.github/workflows/pre-commit.yml`)
+   - **触发**：PR 或 push 到 main/develop
+   - **执行**：代码格式检查（rustfmt, ruff）、linter（clippy）
+   - **手动触发**：支持
 
-3. **Benchmark** (`.github/workflows/benchmark.yml`)
-   - 触发：发布 release tag（`v*.*.*`），或 test 通过后
-   - 执行：跨平台性能基准测试
-   - 依赖：Test
-   - 手动触发：支持
+#### 2. Test (`.github/workflows/test.yml`)
+   - **触发**：push 到 main，或 pre-commit 通过后
+   - **执行**：多平台测试（Ubuntu/macOS/Windows × Python 3.9-3.12）
+   - **依赖**：Pre-commit Checks
+   - **手动触发**：支持
 
-**依赖链**：Pre-commit → Test → Benchmark
+#### 3. Benchmark (`.github/workflows/benchmark.yml`)
+   - **触发**：Release 标签（`v*.*.*`），或 test 通过后
+   - **执行**：跨平台性能基准测试
+   - **依赖**：Test
+   - **产物**：性能报告（保留 30 天）
+   - **手动触发**：支持
 
-查看 `.github/workflows/` 目录了解详情。
+#### 4. Release (`.github/workflows/release.yml`)
+   - **触发**：推送 Release 标签（`v*.*.*`）
+   - **执行**：
+     - 构建所有平台的 wheels
+     - 创建 GitHub Release 并上传 wheels
+     - 构建并部署文档到 GitHub Pages
+     - （可选）发布到 PyPI
+   - **手动触发**：支持
+
+### 发布流程
+
+使用 `just` 命令简化发布流程：
+
+```bash
+# 1. 更新版本号
+# 编辑 Cargo.toml 和 pyproject.toml 中的 version
+
+# 2. 运行完整发布检查
+just release
+
+# 3. 创建 git 标签
+git tag v0.1.0
+git push origin v0.1.0
+
+# 4. GitHub Actions 自动执行
+# - 构建 wheels
+# - 创建 Release
+# - 部署文档
+```
+
+查看最新构建状态：[GitHub Actions](https://github.com/YOUR_USERNAME/pcl-rustic/actions)
+
+### 文档部署
+
+文档会在 Release 时自动部署到 GitHub Pages：
+- **URL**: https://YOUR_USERNAME.github.io/pcl-rustic
+- **工具**: MkDocs Material
+- **语言**: 中文/英文
+
+手动部署文档：
+
+```bash
+just docs-deploy
+```
 
 ## 📊 数据格式要求
 
@@ -318,11 +408,10 @@ pc = PointCloud.from_xyz(xyz)
 2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
 3. 确保代码通过所有检查：
    ```bash
-   cargo fmt
-   cargo clippy
-   uv run ruff format
-   uv run pytest tests/ -v
-   pre-commit run --all-files
+   just fmt
+   just lint
+   just test
+   just pre-commit
    ```
 4. 提交更改 (`git commit -m 'Add amazing feature'`)
 5. 推送到分支 (`git push origin feature/amazing-feature`)
@@ -334,6 +423,8 @@ pc = PointCloud.from_xyz(xyz)
 - Python 代码遵循 `ruff` 规范
 - 添加单元测试覆盖新功能
 - 更新相关文档
+
+查看 [开发指南](https://YOUR_USERNAME.github.io/pcl-rustic/development/setup/) 了解更多详情。
 
 ## 📄 许可证
 

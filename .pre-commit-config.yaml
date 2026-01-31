@@ -1,10 +1,34 @@
 repos:
+# 原有：Python 代码检查/格式化（pre-commit 提交前阶段，默认）
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  # Ruff version.
   rev: v0.14.14
   hooks:
-    # Run the linter.
     - id: ruff-check
       args: [ --fix ]
-    # Run the formatter.
     - id: ruff-format
+
+# 新增：Rust 代码检查/格式化（pre-push 推送前阶段）
+- repo: local
+  hooks:
+    # Rust 格式化检查（rustfmt），自动修复格式问题
+    - id: rustfmt
+      name: rustfmt (Rust code formatter)
+      description: Run rustfmt to format Rust code (auto-fix)
+      stages: [pre-push]  # 指定仅在 pre-push 阶段执行
+      language: system   # 使用系统已安装的 cargo/rustfmt
+      entry: cargo fmt --all --check  # --check 检查格式，--all 处理所有包
+      files: \.rs$       # 仅匹配 .rs 后缀的 Rust 文件
+      pass_filenames: false  # 无需传递文件名给 cargo fmt
+
+    # Rust 静态检查（clippy），更严格的语法/逻辑检查
+    - id: cargo-clippy
+      name: cargo clippy (Rust linter)
+      description: Run cargo clippy for strict Rust linting
+      stages: [pre-push]
+      language: system
+      # --all-targets 检查所有目标（库/二进制/测试），--deny warnings 拒绝警告（可选）
+      # entry: cargo clippy --all-targets --all-features --deny warnings
+      files: \.rs$
+      pass_filenames: false
+      # 可选：允许自动修复 clippy 建议的问题（添加 --fix）
+      entry: cargo clippy --all-targets --all-features --deny warnings --fix
