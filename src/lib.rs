@@ -49,18 +49,18 @@ impl PyPointCloud {
         Ok(PyPointCloud { inner })
     }
 
-    /// 从XYZ和RGB创建点云
+    /// 从XYZ和RGB创建点云（3个独立通道）
     #[staticmethod]
-    fn from_xyz_rgb(xyz: Vec<Vec<f32>>, rgb: Vec<Vec<u8>>) -> PyResult<Self> {
-        let inner = HighPerformancePointCloud::from_xyz_rgb(xyz, rgb)
+    fn from_xyz_rgb(xyz: Vec<Vec<f32>>, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> PyResult<Self> {
+        let inner = HighPerformancePointCloud::from_xyz_rgb(xyz, r, g, b)
             .map_err(|e| PyErr::from(e))?;
         Ok(PyPointCloud { inner })
     }
 
-    /// 从XYZ、intensity和RGB创建点云
+    /// 从XYZ、intensity和RGB创建点云（3个独立通道）
     #[staticmethod]
-    fn from_xyz_intensity_rgb(xyz: Vec<Vec<f32>>, intensity: Vec<f32>, rgb: Vec<Vec<u8>>) -> PyResult<Self> {
-        let inner = HighPerformancePointCloud::from_xyz_intensity_rgb(xyz, intensity, rgb)
+    fn from_xyz_intensity_rgb(xyz: Vec<Vec<f32>>, intensity: Vec<f32>, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> PyResult<Self> {
+        let inner = HighPerformancePointCloud::from_xyz_intensity_rgb(xyz, intensity, r, g, b)
             .map_err(|e| PyErr::from(e))?;
         Ok(PyPointCloud { inner })
     }
@@ -98,8 +98,8 @@ impl PyPointCloud {
         self.inner.get_intensity()
     }
 
-    /// 获取RGB
-    fn get_rgb(&self) -> Option<Vec<Vec<u8>>> {
+    /// 获取RGB（3个独立通道）
+    fn get_rgb(&self) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
         self.inner.get_rgb()
     }
 
@@ -110,9 +110,9 @@ impl PyPointCloud {
         Ok(())
     }
 
-    /// 设置RGB
-    fn set_rgb(&mut self, rgb: Vec<Vec<u8>>) -> PyResult<()> {
-        self.inner.set_rgb(rgb)
+    /// 设置RGB（3个独立通道）
+    fn set_rgb(&mut self, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> PyResult<()> {
+        self.inner.set_rgb(r, g, b)
             .map_err(|e| PyErr::from(e))?;
         Ok(())
     }

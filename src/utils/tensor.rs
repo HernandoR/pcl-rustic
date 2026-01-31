@@ -1,7 +1,7 @@
+use crate::utils::error::{PointCloudError, Result};
+use burn::backend::wgpu::{Wgpu, WgpuDevice};
 /// burn张量工具函数：类型转换、维度检查等
 use burn::tensor::{Tensor, TensorData};
-use burn::backend::wgpu::{Wgpu, WgpuDevice};
-use crate::utils::error::{PointCloudError, Result};
 
 pub type Backend = Wgpu<f32, i32>;
 pub type Tensor1 = Tensor<Backend, 1>;
@@ -23,30 +23,46 @@ pub fn validate_xyz_shape(xyz: &[Vec<f32>]) -> Result<()> {
     }
 
     if !xyz.iter().all(|row| row.len() == 3) {
-        return Err(PointCloudError::TensorShapeError("XYZ必须为[M,3]的形状".to_string()));
+        return Err(PointCloudError::TensorShapeError(
+            "XYZ必须为[M,3]的形状".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-/// 检查RGB张量维度
-pub fn validate_rgb_shape(rgb: &[Vec<u8>]) -> Result<usize> {
-    if rgb.is_empty() {
-        return Err(PointCloudError::TensorShapeError("RGB数据为空".to_string()));
+/// 检查RGB通道维度
+pub fn validate_rgb_channel_shape(channel: &[u8], point_count: usize) -> Result<()> {
+    if channel.len() != point_count {
+        return Err(PointCloudError::DimensionMismatch {
+            expected: point_count,
+            actual: channel.len(),
+        });
     }
+    Ok(())
+}
 
-    if !rgb.iter().all(|row| row.len() == 3) {
-        return Err(PointCloudError::TensorShapeError("RGB必须为[M,3]的形状".to_string()));
-    }
+/// RGB通道 Vec<u8> -> Tensor1 (内部存储为f32)
+pub fn rgb_channel_to_tensor(channel: Vec<u8>) -> Tensor1 {
+    let f32_data: Vec<f32> = channel.into_iter().map(|v| v as f32).collect();
+    let tensor_data = TensorData::from(f32_data.as_slice());
+    Tensor::<Backend, 1>::from_data(tensor_data, &default_device())
+}
 
-    Ok(rgb.len())
+/// Tensor1 -> Vec<u8> (从f32转换回u8)
+pub fn tensor1_to_u8_vec(tensor: &Tensor1) -> Vec<u8> {
+    let data: TensorData = tensor.to_data();
+    let f32_vec: Vec<f32> = data
+        .to_vec::<f32>()
+        .expect("Failed to convert tensor data to Vec<f32>");
+    f32_vec
+        .into_iter()
+        .map(|v| v.clamp(0.0, 255.0) as u8)
+        .collect()
 }
 
 /// 检查intensity张量维度
-pub fn validate_intensity_shape(
-    intensity: &[f32],
-    point_count: usize,
-) -> Result<()> {
+pub fn validate_intensity_shape(intensity: &[f32], point_count: usize) -> Result<()> {
     if intensity.len() != point_count {
         return Err(PointCloudError::DimensionMismatch {
             expected: point_count,
@@ -57,10 +73,7 @@ pub fn validate_intensity_shape(
 }
 
 /// 检查属性张量维度
-pub fn validate_attribute_shape(
-    attribute: &[f32],
-    point_count: usize,
-) -> Result<()> {
+pub fn validate_attribute_shape(attribute: &[f32], point_count: usize) -> Result<()> {
     if attribute.len() != point_count {
         return Err(PointCloudError::DimensionMismatch {
             expected: point_count,
@@ -104,12 +117,15 @@ pub fn vec2_to_tensor(data: Vec<Vec<f32>>) -> Result<Tensor2> {
     let rows = data.len();
     let cols = data[0].len();
     if !data.iter().all(|row| row.len() == cols) {
-        return Err(PointCloudError::TensorShapeError("数据行列数不一致".to_string()));
+        return Err(PointCloudError::TensorShapeError(
+            "数据行列数不一致".to_string(),
+        ));
     }
 
     let flat: Vec<f32> = data.into_iter().flatten().collect();
     let tensor_data = TensorData::from(flat.as_slice());
-    let tensor = Tensor::<Backend, 1>::from_data(tensor_data, &default_device()).reshape([rows, cols]);
+    let tensor =
+        Tensor::<Backend, 1>::from_data(tensor_data, &default_device()).reshape([rows, cols]);
     Ok(tensor)
 }
 
@@ -141,7 +157,8 @@ pub fn tensor2_cols(tensor: &Tensor2) -> usize {
 
 pub fn tensor1_to_vec(tensor: &Tensor1) -> Vec<f32> {
     let data: TensorData = tensor.to_data();
-    data.to_vec::<f32>().expect("Failed to convert tensor data to Vec<f32>")
+    data.to_vec::<f32>()
+        .expect("Failed to convert tensor data to Vec<f32>")
 }
 
 pub fn tensor2_to_vec(tensor: &Tensor2) -> Vec<Vec<f32>> {
@@ -149,7 +166,9 @@ pub fn tensor2_to_vec(tensor: &Tensor2) -> Vec<Vec<f32>> {
     let shape = &data.shape;
     let rows = shape[0];
     let cols = shape[1];
-    let flat: Vec<f32> = data.to_vec::<f32>().expect("Failed to convert tensor data to Vec<f32>");
+    let flat: Vec<f32> = data
+        .to_vec::<f32>()
+        .expect("Failed to convert tensor data to Vec<f32>");
     flat.chunks(cols)
         .take(rows)
         .map(|chunk| chunk.to_vec())
@@ -166,4 +185,3 @@ pub fn matrix_to_tensor(matrix: Vec<Vec<f32>>) -> Result<Tensor2> {
     }
     Ok(tensor)
 }
-

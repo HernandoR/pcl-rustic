@@ -19,8 +19,8 @@ pub trait PointCloudCore {
     /// 获取intensity数据（如果存在）
     fn get_intensity(&self) -> Option<Vec<f32>>;
 
-    /// 获取RGB数据（形状[M,3]）
-    fn get_rgb(&self) -> Option<Vec<Vec<u8>>>;
+    /// 获取RGB数据（3个独立通道）
+    fn get_rgb(&self) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)>;
 
     /// 获取自定义属性名列表
     fn attribute_names(&self) -> Vec<String>;
@@ -34,8 +34,8 @@ pub trait PointCloudProperties {
     /// 设置intensity（覆盖式）
     fn set_intensity(&mut self, intensity: Vec<f32>) -> Result<()>;
 
-    /// 设置RGB（覆盖式）
-    fn set_rgb(&mut self, rgb: Vec<Vec<u8>>) -> Result<()>;
+    /// 设置RGB（覆盖式，3个独立通道）
+    fn set_rgb(&mut self, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> Result<()>;
 
     /// 添加自定义属性（重复时报错）
     fn add_attribute(&mut self, name: String, data: Vec<f32>) -> Result<()>;

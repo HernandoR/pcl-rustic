@@ -63,7 +63,7 @@ impl VoxelDownsample for HighPerformancePointCloud {
         // 第三步：构建下采样后的点云
         let mut new_xyz = Vec::new();
         let mut new_intensity = None;
-        let mut new_rgb = None;
+        let mut new_rgb: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = None;
         let mut new_attributes = std::collections::HashMap::new();
 
         for &idx in &selected_indices {
@@ -80,13 +80,22 @@ impl VoxelDownsample for HighPerformancePointCloud {
             new_intensity = Some(new_int);
         }
 
-        // 下采样RGB
-        if let Some(rgb) = self.rgb_ref() {
-            let mut new_rgb_data = Vec::new();
+        // 下采样RGB（3个独立通道）
+        let (r_ref, g_ref, b_ref) = self.rgb_channels_ref();
+        if let (Some(r), Some(g), Some(b)) = (r_ref, g_ref, b_ref) {
+            let r_vec = tensor::tensor1_to_u8_vec(r);
+            let g_vec = tensor::tensor1_to_u8_vec(g);
+            let b_vec = tensor::tensor1_to_u8_vec(b);
+
+            let mut new_r = Vec::new();
+            let mut new_g = Vec::new();
+            let mut new_b = Vec::new();
             for &idx in &selected_indices {
-                new_rgb_data.push(rgb[idx].clone());
+                new_r.push(r_vec[idx]);
+                new_g.push(g_vec[idx]);
+                new_b.push(b_vec[idx]);
             }
-            new_rgb = Some(new_rgb_data);
+            new_rgb = Some((new_r, new_g, new_b));
         }
 
         // 下采样自定义属性
@@ -104,8 +113,8 @@ impl VoxelDownsample for HighPerformancePointCloud {
         if let Some(intensity) = new_intensity {
             result.set_intensity(intensity)?;
         }
-        if let Some(rgb) = new_rgb {
-            result.set_rgb(rgb)?;
+        if let Some((r, g, b)) = new_rgb {
+            result.set_rgb(r, g, b)?;
         }
         for (name, data) in new_attributes {
             result.set_attribute(name, data)?;
@@ -117,6 +126,8 @@ impl VoxelDownsample for HighPerformancePointCloud {
 
 #[cfg(test)]
 mod tests {
+    use crate::traits::PointCloudCore;
+
     use super::*;
 
     #[test]

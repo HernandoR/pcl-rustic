@@ -10,7 +10,7 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 impl HighPerformancePointCloud {
     /// 转换为numpy数组字典
-    /// 返回包含'xyz'、可选的'intensity'和'rgb'的字典
+    /// 返回包含'xyz'、可选的'intensity'和'rgb' (r, g, b分离)的字典
     pub fn to_numpy<'py>(&self, py: Python<'py>) -> Result<PyObject> {
         let dict = PyDict::new_bound(py);
 
@@ -35,18 +35,24 @@ impl HighPerformancePointCloud {
             dict.set_item("intensity", intensity_np).map_err(|e| e.to_string())?;
         }
 
-        // 转换RGB（如果存在）
-        if let Some(rgb) = self.rgb_ref() {
-            let n = rgb.len();
-            let mut rgb_flat: Vec<u8> = Vec::with_capacity(n * 3);
-            for row in rgb {
-                rgb_flat.extend_from_slice(row);
-            }
+        // 转换RGB（如果存在）- 分离的R/G/B通道
+        let (r_ref, g_ref, b_ref) = self.rgb_channels_ref();
+        if let (Some(r), Some(g), Some(b)) = (r_ref, g_ref, b_ref) {
+            let r_vec = tensor::tensor1_to_u8_vec(r);
+            let g_vec = tensor::tensor1_to_u8_vec(g);
+            let b_vec = tensor::tensor1_to_u8_vec(b);
 
-            let rgb_nd = Array2::from_shape_vec((n, 3), rgb_flat)
-                .map_err(|e| format!("RGB shape error: {}", e))?;
-            let rgb_np = IntoPyArray::into_pyarray_bound(rgb_nd, py);
-            dict.set_item("rgb", rgb_np).map_err(|e| e.to_string())?;
+            let r_nd = Array1::from_vec(r_vec);
+            let g_nd = Array1::from_vec(g_vec);
+            let b_nd = Array1::from_vec(b_vec);
+
+            let r_np = IntoPyArray::into_pyarray_bound(r_nd, py);
+            let g_np = IntoPyArray::into_pyarray_bound(g_nd, py);
+            let b_np = IntoPyArray::into_pyarray_bound(b_nd, py);
+
+            dict.set_item("r", r_np).map_err(|e| e.to_string())?;
+            dict.set_item("g", g_np).map_err(|e| e.to_string())?;
+            dict.set_item("b", b_np).map_err(|e| e.to_string())?;
         }
 
         // 转换自定义属性
@@ -99,17 +105,35 @@ impl HighPerformancePointCloud {
             }
         }
 
-        // 可选：rgb
-        if let Ok(Some(rgb_obj)) = data.get_item("rgb") {
-            if let Ok(rgb_array) = rgb_obj.downcast::<PyArray2<u8>>() {
-                let readonly = rgb_array.readonly();
-                let rgb: Vec<Vec<u8>> = readonly
+        // 可选：rgb（分离的r、g、b通道）
+        let r_item = data.get_item("r");
+        let g_item = data.get_item("g");
+        let b_item = data.get_item("b");
+
+        if let (Ok(Some(r_obj)), Ok(Some(g_obj)), Ok(Some(b_obj))) = (r_item, g_item, b_item) {
+            if let (Ok(r_array), Ok(g_array), Ok(b_array)) = (
+                r_obj.downcast::<PyArray1<u8>>(),
+                g_obj.downcast::<PyArray1<u8>>(),
+                b_obj.downcast::<PyArray1<u8>>(),
+            ) {
+                let r_readonly = r_array.readonly();
+                let g_readonly = g_array.readonly();
+                let b_readonly = b_array.readonly();
+
+                let r: Vec<u8> = r_readonly
                     .as_slice()
-                    .map_err(|_| "无法读取rgb数据".to_string())?
-                    .chunks(3)
-                    .map(|chunk| chunk.to_vec())
-                    .collect();
-                result.set_rgb(rgb)?;
+                    .map_err(|_| "无法读取r数据".to_string())?
+                    .to_vec();
+                let g: Vec<u8> = g_readonly
+                    .as_slice()
+                    .map_err(|_| "无法读取g数据".to_string())?
+                    .to_vec();
+                let b: Vec<u8> = b_readonly
+                    .as_slice()
+                    .map_err(|_| "无法读取b数据".to_string())?
+                    .to_vec();
+
+                result.set_rgb(r, g, b)?;
             }
         }
 

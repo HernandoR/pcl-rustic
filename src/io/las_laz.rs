@@ -18,7 +18,9 @@ impl HighPerformancePointCloud {
 
         let mut xyz = Vec::new();
         let mut intensity = Vec::new();
-        let mut rgb = Vec::new();
+        let mut rgb_r = Vec::new();
+        let mut rgb_g = Vec::new();
+        let mut rgb_b = Vec::new();
         let has_color = reader.header().point_format().has_color;
 
         for point_result in reader.points() {
@@ -31,11 +33,9 @@ impl HighPerformancePointCloud {
 
             if has_color {
                 if let Some(color) = point.color {
-                    rgb.push(vec![
-                        (color.red >> 8) as u8,
-                        (color.green >> 8) as u8,
-                        (color.blue >> 8) as u8,
-                    ]);
+                    rgb_r.push((color.red >> 8) as u8);
+                    rgb_g.push((color.green >> 8) as u8);
+                    rgb_b.push((color.blue >> 8) as u8);
                 }
             }
         }
@@ -46,8 +46,8 @@ impl HighPerformancePointCloud {
             result.set_intensity(intensity)?;
         }
 
-        if !rgb.is_empty() && rgb.len() == result.point_count() {
-            result.set_rgb(rgb)?;
+        if !rgb_r.is_empty() && rgb_r.len() == result.point_count() {
+            result.set_rgb(rgb_r, rgb_g, rgb_b)?;
         }
 
         Ok(result)
@@ -95,12 +95,11 @@ impl HighPerformancePointCloud {
                 point.intensity = 0;
             }
 
-            if let Some(rgb_vec) = &rgb {
-                let c = &rgb_vec[idx];
+            if let Some((ref r_vec, ref g_vec, ref b_vec)) = rgb {
                 point.color = Some(Color {
-                    red: (c[0] as u16) << 8,
-                    green: (c[1] as u16) << 8,
-                    blue: (c[2] as u16) << 8,
+                    red: (r_vec[idx] as u16) << 8,
+                    green: (g_vec[idx] as u16) << 8,
+                    blue: (b_vec[idx] as u16) << 8,
                 });
             }
 

@@ -41,9 +41,12 @@ impl HighPerformancePointCloud {
         *self.intensity_mut() = None;
     }
 
-    /// 移除RGB
+    /// 移除RGB（3个独立通道）
     pub fn remove_rgb(&mut self) {
-        *self.rgb_mut() = None;
+        let (r, g, b) = self.rgb_channels_mut();
+        *r = None;
+        *g = None;
+        *b = None;
     }
 
     /// 检查是否包含所有必要的属性

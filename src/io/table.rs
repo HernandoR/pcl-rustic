@@ -136,11 +136,7 @@ fn from_dataframe(df: DataFrame, columns: TableColumns) -> Result<HighPerformanc
             let g = get_u8_col(&df, gn)?;
             let b = get_u8_col(&df, bn)?;
             if r.len() == pc.point_count() && g.len() == pc.point_count() && b.len() == pc.point_count() {
-                let mut rgb = Vec::with_capacity(r.len());
-                for i in 0..r.len() {
-                    rgb.push(vec![r[i], g[i], b[i]]);
-                }
-                pc.set_rgb(rgb)?;
+                pc.set_rgb(r, g, b)?;
             }
         }
     }
@@ -172,18 +168,13 @@ fn to_dataframe(pc: &HighPerformancePointCloud, columns: TableColumns) -> Result
     }
 
     if let (Some(rn), Some(gn), Some(bn)) = (&columns.rgb_r, &columns.rgb_g, &columns.rgb_b) {
-        if let Some(rgb) = pc.get_rgb() {
-            let mut r: Vec<u32> = Vec::with_capacity(rgb.len());
-            let mut g: Vec<u32> = Vec::with_capacity(rgb.len());
-            let mut b: Vec<u32> = Vec::with_capacity(rgb.len());
-            for c in rgb {
-                r.push(c[0] as u32);
-                g.push(c[1] as u32);
-                b.push(c[2] as u32);
-            }
-            series.push(Series::new(PlSmallStr::from_str(rn), r));
-            series.push(Series::new(PlSmallStr::from_str(gn), g));
-            series.push(Series::new(PlSmallStr::from_str(bn), b));
+        if let Some((r, g, b)) = pc.get_rgb() {
+            let r_u32: Vec<u32> = r.into_iter().map(|v| v as u32).collect();
+            let g_u32: Vec<u32> = g.into_iter().map(|v| v as u32).collect();
+            let b_u32: Vec<u32> = b.into_iter().map(|v| v as u32).collect();
+            series.push(Series::new(PlSmallStr::from_str(rn), r_u32));
+            series.push(Series::new(PlSmallStr::from_str(gn), g_u32));
+            series.push(Series::new(PlSmallStr::from_str(bn), b_u32));
         }
     }
 

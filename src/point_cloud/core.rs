@@ -15,8 +15,10 @@ pub struct HighPerformancePointCloud {
     // 可选：强度值（形状[M,]）
     intensity: Option<Tensor1>,
 
-    // 可选：RGB颜色（形状[M,3]）
-    rgb: Option<Vec<Vec<u8>>>,
+    // 可选：RGB颜色（3个独立通道，各为形状[M,]）
+    rgb_r: Option<Tensor1>,
+    rgb_g: Option<Tensor1>,
+    rgb_b: Option<Tensor1>,
 
     // 自定义属性字典
     attributes: HashMap<String, Tensor1>,
@@ -28,7 +30,9 @@ impl HighPerformancePointCloud {
         Self {
             xyz: tensor::empty_xyz(),
             intensity: None,
-            rgb: None,
+            rgb_r: None,
+            rgb_g: None,
+            rgb_b: None,
             attributes: HashMap::new(),
         }
     }
@@ -43,7 +47,9 @@ impl HighPerformancePointCloud {
         Ok(Self {
             xyz,
             intensity: None,
-            rgb: None,
+            rgb_r: None,
+            rgb_g: None,
+            rgb_b: None,
             attributes: HashMap::new(),
         })
     }
@@ -60,47 +66,49 @@ impl HighPerformancePointCloud {
         Ok(Self {
             xyz,
             intensity: Some(intensity),
-            rgb: None,
+            rgb_r: None,
+            rgb_g: None,
+            rgb_b: None,
             attributes: HashMap::new(),
         })
     }
 
-    /// 从XYZ和RGB初始化
-    pub fn from_xyz_rgb(xyz: Vec<Vec<f32>>, rgb: Vec<Vec<u8>>) -> Result<Self> {
+    /// 从XYZ和RGB初始化（3个独立通道）
+    pub fn from_xyz_rgb(xyz: Vec<Vec<f32>>, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> Result<Self> {
         tensor::validate_xyz_shape(&xyz)?;
         let point_count = xyz.len();
 
-        if rgb.len() != point_count {
-            return Err(format!("RGB点数不匹配: 期望{}，实际{}", point_count, rgb.len()).into());
-        }
-
-        tensor::validate_rgb_shape(&rgb)?;
+        tensor::validate_rgb_channel_shape(&r, point_count)?;
+        tensor::validate_rgb_channel_shape(&g, point_count)?;
+        tensor::validate_rgb_channel_shape(&b, point_count)?;
 
         let xyz = tensor::xyz_to_tensor(xyz)?;
 
         Ok(Self {
             xyz,
             intensity: None,
-            rgb: Some(rgb),
+            rgb_r: Some(tensor::rgb_channel_to_tensor(r)),
+            rgb_g: Some(tensor::rgb_channel_to_tensor(g)),
+            rgb_b: Some(tensor::rgb_channel_to_tensor(b)),
             attributes: HashMap::new(),
         })
     }
 
-    /// 从XYZ、intensity和RGB初始化
+    /// 从XYZ、intensity和RGB初始化（3个独立通道）
     pub fn from_xyz_intensity_rgb(
         xyz: Vec<Vec<f32>>,
         intensity: Vec<f32>,
-        rgb: Vec<Vec<u8>>,
+        r: Vec<u8>,
+        g: Vec<u8>,
+        b: Vec<u8>,
     ) -> Result<Self> {
         tensor::validate_xyz_shape(&xyz)?;
         let point_count = xyz.len();
         tensor::validate_intensity_shape(&intensity, point_count)?;
 
-        if rgb.len() != point_count {
-            return Err(format!("RGB点数不匹配: 期望{}，实际{}", point_count, rgb.len()).into());
-        }
-
-        tensor::validate_rgb_shape(&rgb)?;
+        tensor::validate_rgb_channel_shape(&r, point_count)?;
+        tensor::validate_rgb_channel_shape(&g, point_count)?;
+        tensor::validate_rgb_channel_shape(&b, point_count)?;
 
         let xyz = tensor::xyz_to_tensor(xyz)?;
         let intensity = tensor::intensity_to_tensor(intensity);
@@ -108,7 +116,9 @@ impl HighPerformancePointCloud {
         Ok(Self {
             xyz,
             intensity: Some(intensity),
-            rgb: Some(rgb),
+            rgb_r: Some(tensor::rgb_channel_to_tensor(r)),
+            rgb_g: Some(tensor::rgb_channel_to_tensor(g)),
+            rgb_b: Some(tensor::rgb_channel_to_tensor(b)),
             attributes: HashMap::new(),
         })
     }
@@ -133,14 +143,26 @@ impl HighPerformancePointCloud {
         self.intensity.as_ref()
     }
 
-    /// 获取内部RGB的可变引用（仅内部使用）
-    pub(crate) fn rgb_mut(&mut self) -> &mut Option<Vec<Vec<u8>>> {
-        &mut self.rgb
+    /// 获取内部RGB通道的可变引用（仅内部使用）
+    pub(crate) fn rgb_channels_mut(
+        &mut self,
+    ) -> (
+        &mut Option<Tensor1>,
+        &mut Option<Tensor1>,
+        &mut Option<Tensor1>,
+    ) {
+        (&mut self.rgb_r, &mut self.rgb_g, &mut self.rgb_b)
     }
 
-    /// 获取内部RGB的不可变引用（仅内部使用）
-    pub(crate) fn rgb_ref(&self) -> Option<&Vec<Vec<u8>>> {
-        self.rgb.as_ref()
+    /// 获取内部RGB通道的不可变引用（仅内部使用）
+    pub(crate) fn rgb_channels_ref(
+        &self,
+    ) -> (Option<&Tensor1>, Option<&Tensor1>, Option<&Tensor1>) {
+        (
+            self.rgb_r.as_ref(),
+            self.rgb_g.as_ref(),
+            self.rgb_b.as_ref(),
+        )
     }
 
     /// 获取内部属性字典的可变引用（仅内部使用）
@@ -161,8 +183,15 @@ impl HighPerformancePointCloud {
             total += tensor::tensor1_len(intensity) * std::mem::size_of::<f32>();
         }
 
-        if let Some(rgb) = &self.rgb {
-            total += rgb.len() * 3 * std::mem::size_of::<u8>();
+        // RGB通道存储为f32
+        if let Some(r) = &self.rgb_r {
+            total += tensor::tensor1_len(r) * std::mem::size_of::<f32>();
+        }
+        if let Some(g) = &self.rgb_g {
+            total += tensor::tensor1_len(g) * std::mem::size_of::<f32>();
+        }
+        if let Some(b) = &self.rgb_b {
+            total += tensor::tensor1_len(b) * std::mem::size_of::<f32>();
         }
 
         for (_, data) in &self.attributes {
@@ -193,15 +222,22 @@ impl PointCloudCore for HighPerformancePointCloud {
     }
 
     fn has_rgb(&self) -> bool {
-        self.rgb.is_some()
+        self.rgb_r.is_some() && self.rgb_g.is_some() && self.rgb_b.is_some()
     }
 
     fn get_intensity(&self) -> Option<Vec<f32>> {
         self.intensity.as_ref().map(tensor::tensor1_to_vec)
     }
 
-    fn get_rgb(&self) -> Option<Vec<Vec<u8>>> {
-        self.rgb.clone()
+    fn get_rgb(&self) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+        match (&self.rgb_r, &self.rgb_g, &self.rgb_b) {
+            (Some(r), Some(g), Some(b)) => Some((
+                tensor::tensor1_to_u8_vec(r),
+                tensor::tensor1_to_u8_vec(g),
+                tensor::tensor1_to_u8_vec(b),
+            )),
+            _ => None,
+        }
     }
 
     fn attribute_names(&self) -> Vec<String> {
@@ -220,17 +256,15 @@ impl PointCloudProperties for HighPerformancePointCloud {
         Ok(())
     }
 
-    fn set_rgb(&mut self, rgb: Vec<Vec<u8>>) -> Result<()> {
-        if rgb.len() != self.point_count() {
-            return Err(format!(
-                "RGB点数不匹配: 期望{}，实际{}",
-                self.point_count(),
-                rgb.len()
-            )
-            .into());
-        }
-        tensor::validate_rgb_shape(&rgb)?;
-        self.rgb = Some(rgb);
+    fn set_rgb(&mut self, r: Vec<u8>, g: Vec<u8>, b: Vec<u8>) -> Result<()> {
+        let point_count = self.point_count();
+        tensor::validate_rgb_channel_shape(&r, point_count)?;
+        tensor::validate_rgb_channel_shape(&g, point_count)?;
+        tensor::validate_rgb_channel_shape(&b, point_count)?;
+
+        self.rgb_r = Some(tensor::rgb_channel_to_tensor(r));
+        self.rgb_g = Some(tensor::rgb_channel_to_tensor(g));
+        self.rgb_b = Some(tensor::rgb_channel_to_tensor(b));
         Ok(())
     }
 
