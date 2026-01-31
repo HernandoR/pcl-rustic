@@ -86,13 +86,25 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
+      - name: Install just
+        run: uv tool install just
+
       - name: Install dependencies and build
         run: |
           uv sync --locked --all-extras --dev
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          uv run pytest tests/ -v --tb=short -k "not slow"
+          just test
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v5
+        if: matrix.platform.os == 'ubuntu-22.04' && matrix.python-version == '3.11'
+        with:
+          files: ./coverage/coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # Build wheels for Linux
   linux:
@@ -301,13 +313,16 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.platform.python-version }}
 
+      - name: Install just
+        run: uv tool install just
+
       - name: Install dependencies and build
         run: |
           uv sync --locked --all-extras --dev
 
       - name: Run benchmarks
         run: |
-          uv run pytest tests/test_benchmark.py::TestBenchmarkSummary::test_full_benchmark_report -v -s
+          just benchmark
 
       - name: Upload benchmark results
         if: always()

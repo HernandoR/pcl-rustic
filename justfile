@@ -15,13 +15,11 @@ dev:
 build:
     maturin develop --release
 
-# Run all tests
 test:
     uv run pytest tests/ -v
 
-# Run tests excluding slow benchmarks
-test-fast:
-    uv run pytest tests/ -v -k "not slow"
+test-slow:
+    uv run pytest tests/ -v --run-slow
 
 # Run benchmark tests
 benchmark:

@@ -101,11 +101,11 @@ maturin develop --release
 ## 运行测试
 
 ```bash
-# 所有测试
+# 快速测试
 just test
 
-# 快速测试（跳过慢速测试）
-just test-fast
+# 所有测试
+just test-slow
 
 # 基准测试
 just benchmark

@@ -101,7 +101,7 @@ class TestBenchmarkVoxelDownsample:
         "num_points",
         [
             pytest.param(10_000_000, id="10M"),
-            pytest.param(50_000_000, id="50M"),
+            pytest.param(50_000_000, id="50M", marks=pytest.mark.slow),
             pytest.param(100_000_000, id="100M", marks=pytest.mark.slow),
         ],
     )
@@ -164,6 +164,7 @@ class TestBenchmarkVoxelDownsample:
 class TestBenchmarkSummary:
     """生成完整的性能报告"""
 
+    @pytest.mark.slow
     def test_full_benchmark_report(self):
         """运行完整的性能基准测试并输出报告"""
         logger.info("\n" + "=" * 70)
