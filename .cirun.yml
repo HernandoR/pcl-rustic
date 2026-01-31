@@ -3,6 +3,6 @@ runners:
     cloud: "do"
     gpu: "nvidia_rtx4000_ada"
     instance_type: "gpu-4000adax1-20gb"
-    machine_image: "ubuntu-20-04-x64"
+    machine_image: "gpu-h100x1-base"
     labels:
       - "cirun-gpu-ubuntu-runner"
