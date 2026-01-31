@@ -9,7 +9,7 @@ use crate::utils::error::{PointCloudError, Result};
 // }
 use burn::backend::candle::{Candle, CandleDevice};
 use burn::tensor::{Tensor, TensorData};
-pub type Backend = Candle<f32, i32>;
+pub type Backend = Candle<f32, u32>;
 pub type Device = CandleDevice;
 pub fn default_device() -> Device {
     CandleDevice::default()
@@ -45,7 +45,7 @@ pub fn tensor2_from_slice(data: &[f32], rows: usize, cols: usize) -> Result<Tens
     Ok(tensor)
 }
 
-/// 从 flat &[f32] 创建 XYZ Tensor2，形状为 [N, 3]
+// /// 从 flat &[f32] 创建 XYZ Tensor2，形状为 [N, 3]
 // pub fn xyz_from_slice(data: &[f32]) -> Result<Tensor2> {
 //     if !data.len().is_multiple_of(3) {
 //         return Err(PointCloudError::TensorShapeError(

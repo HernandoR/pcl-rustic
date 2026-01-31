@@ -2,7 +2,7 @@
 use crate::point_cloud::core::HighPerformancePointCloud;
 use crate::traits::PointCloudCore;
 use crate::utils::error::Result;
-use crate::utils::tensor::{self, tensor2_from_slice};
+use crate::utils::tensor;
 use numpy::ndarray::{Array1, Array2};
 use numpy::{IntoPyArray, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::prelude::*;
