@@ -1,21 +1,26 @@
 use crate::utils::error::{PointCloudError, Result};
-use burn::backend::wgpu::{Wgpu, WgpuDevice};
 /// burn张量工具函数：类型转换、维度检查等
+// use burn::backend::wgpu::{Wgpu, WgpuDevice};
+// use burn::tensor::{Tensor, TensorData};
+// pub type Backend = Wgpu<f32, i32>;
+// pub type Device = WgpuDevice;
+// pub fn default_device() -> Device {
+//     WgpuDevice::default()
+// }
+use burn::backend::candle::{Candle, CandleDevice};
 use burn::tensor::{Tensor, TensorData};
-
-pub type Backend = Wgpu<f32, i32>;
-pub type Tensor1 = Tensor<Backend, 1>;
-pub type Tensor2 = Tensor<Backend, 2>;
-pub type Device = WgpuDevice;
-
+pub type Backend = Candle<f32, i32>;
+pub type Device = CandleDevice;
 pub fn default_device() -> Device {
-    WgpuDevice::default()
+    CandleDevice::default()
 }
 
 pub fn empty_xyz() -> Tensor2 {
     Tensor::<Backend, 2>::zeros([0, 3], &default_device())
 }
 
+pub type Tensor1 = Tensor<Backend, 1>;
+pub type Tensor2 = Tensor<Backend, 2>;
 // ============ 从 slice 创建 Tensor（避免 Vec 复制）============
 
 /// 从 &[f32] 创建 Tensor1
@@ -41,18 +46,18 @@ pub fn tensor2_from_slice(data: &[f32], rows: usize, cols: usize) -> Result<Tens
 }
 
 /// 从 flat &[f32] 创建 XYZ Tensor2，形状为 [N, 3]
-pub fn xyz_from_slice(data: &[f32]) -> Result<Tensor2> {
-    if !data.len().is_multiple_of(3) {
-        return Err(PointCloudError::TensorShapeError(
-            "XYZ数据长度必须是3的倍数".to_string(),
-        ));
-    }
-    if data.is_empty() {
-        return Err(PointCloudError::TensorShapeError("XYZ数据为空".to_string()));
-    }
-    let rows = data.len() / 3;
-    tensor2_from_slice(data, rows, 3)
-}
+// pub fn xyz_from_slice(data: &[f32]) -> Result<Tensor2> {
+//     if !data.len().is_multiple_of(3) {
+//         return Err(PointCloudError::TensorShapeError(
+//             "XYZ数据长度必须是3的倍数".to_string(),
+//         ));
+//     }
+//     if data.is_empty() {
+//         return Err(PointCloudError::TensorShapeError("XYZ数据为空".to_string()));
+//     }
+//     let rows = data.len() / 3;
+//     tensor2_from_slice(data, rows, 3)
+// }
 
 /// 检查XYZ张量维度
 pub fn validate_xyz_shape(xyz: &[Vec<f32>]) -> Result<()> {

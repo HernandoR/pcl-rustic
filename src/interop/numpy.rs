@@ -2,7 +2,7 @@
 use crate::point_cloud::core::HighPerformancePointCloud;
 use crate::traits::PointCloudCore;
 use crate::utils::error::Result;
-use crate::utils::tensor;
+use crate::utils::tensor::{self, tensor2_from_slice};
 use numpy::ndarray::{Array1, Array2};
 use numpy::{IntoPyArray, PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::prelude::*;
@@ -187,7 +187,8 @@ fn read_xyz_from_pyany(obj: &Bound<'_, pyo3::PyAny>) -> Result<Tensor2> {
     let slice = readonly
         .as_slice()
         .map_err(|_| "无法读取xyz数据，数组可能不连续")?;
-    tensor::xyz_from_slice(slice)
+    // tensor::xyz_from_slice(slice)
+    tensor::tensor2_from_slice(slice, shape[0], shape[1])
 }
 
 /// 从 PyAny 读取 1D 数组，仅支持 f32 dtype

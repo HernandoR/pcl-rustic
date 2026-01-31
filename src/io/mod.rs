@@ -9,7 +9,7 @@ use std::path::Path;
 impl HighPerformancePointCloud {
     /// 根据扩展名自动加载点云
     /// 支持: .las/.laz/.csv/.parquet/.pq
-    pub fn load_from_file(path: &str, columns: Option<table::TableColumns>) -> Result<Self> {
+    pub fn load_from_file(path: &str, columns: Option<table::TableColumnNames>) -> Result<Self> {
         let ext = Path::new(path)
             .extension()
             .and_then(|e| e.to_str())
@@ -32,7 +32,7 @@ impl HighPerformancePointCloud {
 
     /// 根据扩展名自动保存点云
     /// 支持: .las/.laz/.csv/.parquet/.pq
-    pub fn save_to_file(&self, path: &str, columns: Option<table::TableColumns>) -> Result<()> {
+    pub fn save_to_file(&self, path: &str, columns: Option<table::TableColumnNames>) -> Result<()> {
         let ext = Path::new(path)
             .extension()
             .and_then(|e| e.to_str())

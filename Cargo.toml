@@ -11,15 +11,15 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Core tensor computation
-burn = { version = "0.20.1", features = ["std", "wgpu"] }
-ndarray = "^0.15"
+burn = { version = "0.20.1", features = ["std", "wgpu","ndarray","candle"] }
+ndarray = "^0.17"
 
 # File I/O
 las = { version = "0.9.9", features = ["laz-parallel"] }
 parquet = { version = "^57.2.0", features = ["arrow"] }
 arrow = "^57.2.0"
 csv = "^1.3"
-polars = { version = "^0.43.1", features = ["csv", "parquet"] }
+polars = { version = "^0.52.0", features = ["csv", "parquet"] }
 
 # NumPy interop
 numpy = "^0.27"

@@ -1,0 +1,8 @@
+runners:
+  - name: gpu-runner
+    cloud: do
+    gpu: nvidia-tesla-t4
+    instance_type: gpu-4000adax1-20gb
+    machine_image: ubuntu-20-04-x64
+    labels:
+      - cirun-gpu-ubuntu-runner
