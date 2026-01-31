@@ -81,7 +81,6 @@ jobs:
       - name: Install dependencies and build
         run: |
           uv sync --locked --all-extras --dev
-          uv run maturin develop --release
 
       - name: Run tests
         run: |
@@ -278,7 +277,6 @@ jobs:
       - name: Install dependencies and build
         run: |
           uv sync --locked --all-extras --dev
-          uv run maturin develop --release
 
       - name: Run benchmarks
         run: |
