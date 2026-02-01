@@ -12,6 +12,8 @@ wheels/
 # Virtual environments
 .venv/
 coverage/
+.coverage
+reports/
 
 # Editors
 *~

@@ -1,18 +1,51 @@
 use crate::utils::error::{PointCloudError, Result};
+use burn::backend::ndarray::NdArrayDevice;
+use burn::backend::wgpu::WgpuDevice;
 /// burn张量工具函数：类型转换、维度检查等
-// use burn::backend::wgpu::{Wgpu, WgpuDevice};
-// use burn::tensor::{Tensor, TensorData};
-// pub type Backend = Wgpu<f32, i32>;
-// pub type Device = WgpuDevice;
-// pub fn default_device() -> Device {
-//     WgpuDevice::default()
-// }
-use burn::backend::candle::{Candle, CandleDevice};
+use burn::backend::{NdArray, Router, Wgpu};
+use burn::prelude::DeviceOps;
+use burn::tensor::backend::Backend as BackendTrait;
 use burn::tensor::{Tensor, TensorData};
-pub type Backend = Candle<f32, u32>;
-pub type Device = CandleDevice;
-pub fn default_device() -> Device {
-    CandleDevice::default()
+
+// Router backend: automatically selects GPU (Wgpu) or CPU (NdArray) at runtime
+pub type Backend = Router<(Wgpu, NdArray)>;
+
+/// Default device with automatic GPU->CPU fallback
+///
+/// 工作原理：
+/// 1. Router backend 包含两个后端：Wgpu (GPU) 和 NdArray (CPU)
+/// 2. MultiDevice::B1 对应第一个后端 (Wgpu)，B2 对应第二个 (NdArray)
+/// 3. 运行时尝试初始化 GPU，失败则自动降级到 CPU
+pub fn default_device() -> <Backend as BackendTrait>::Device {
+    use burn::backend::router::duo::MultiDevice;
+
+    // 尝试创建 GPU 设备，如果失败则降级到 CPU
+    // let result = panic::catch_unwind(|| WgpuDevice::default());
+    let wgpu_cnt = WgpuDevice::device_count_total();
+    match wgpu_cnt {
+        0 => {
+            log::warn!("GPU not available, falling back to CPU backend");
+            MultiDevice::B2(NdArrayDevice::Cpu)
+        }
+        _ => {
+            log::info!("Using GPU backend (WGPU)");
+            MultiDevice::B1(WgpuDevice::default())
+        }
+    }
+}
+
+/// Get a GPU device if available
+#[allow(dead_code)]
+pub fn gpu_device() -> <Backend as BackendTrait>::Device {
+    use burn::backend::router::duo::MultiDevice;
+    MultiDevice::B1(WgpuDevice::default())
+}
+
+/// Get a CPU device
+#[allow(dead_code)]
+pub fn cpu_device() -> <Backend as BackendTrait>::Device {
+    use burn::backend::router::duo::MultiDevice;
+    MultiDevice::B2(NdArrayDevice::Cpu)
 }
 
 pub fn empty_xyz() -> Tensor2 {

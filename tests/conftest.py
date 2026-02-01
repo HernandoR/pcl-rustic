@@ -6,6 +6,7 @@ PCL Rustic pytest 配置和 fixtures
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -25,6 +26,7 @@ logger.add(
 def pytest_configure(config):
     """注册自定义标记"""
     config.addinivalue_line("markers", "slow: 标记为慢速测试（100M+ 点）")
+    Path("reports").mkdir(parents=True, exist_ok=True)
 
 
 def pytest_addoption(parser):
