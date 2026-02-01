@@ -1,0 +1,12 @@
+# Self-Hosted Github Action Runners on Openstack via Cirun.io
+# Reference: https://docs.cirun.io/reference/yaml
+runners:
+  - name: "gpu-runner"
+    cloud: "do"
+    # https://slugs.do-api.dev/
+    gpu: "nvidia_rtx4000_ada"
+    instance_type: "gpu-4000adax1-20gb"
+    machine_image: "gpu-h100x1-base"
+    region: "tor1"
+    labels:
+      - "cirun-gpu-ubuntu-runner"
