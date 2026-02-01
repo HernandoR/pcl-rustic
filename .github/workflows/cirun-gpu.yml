@@ -1,4 +1,4 @@
-name: CI-gpu
+name: cirun-gpu
 
 on:
   workflow_dispatch:
