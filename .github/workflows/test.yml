@@ -374,26 +374,42 @@ jobs:
       contents: write
       attestations: write
     steps:
+      # determin if release by if secrets.PYPI_API_TOKEN is set
+      - name: examine token
+        env:
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "$PYPI_API_TOKEN:-" ]; then
+            echo "No PYPI_API_TOKEN found, skipping PyPI publish."
+          else
+            echo "PYPI_API_TOKEN found, will publish to PyPI."
+          fi
+          echo "CONTINUE=true" >> $GITHUB_OUTPUT
+
       - uses: actions/download-artifact@v7
+        if: steps.examine-token.outputs.CONTINUE == 'true'
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
+        if: steps.examine-token.outputs.CONTINUE == 'true'
         with:
           subject-path: "wheels-*/*"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
+        if: steps.examine-token.outputs.CONTINUE == 'true'
         with:
           enable-cache: true
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Publish to PyPI
-        if: secrets.PYPI_API_TOKEN != ''
+        if: steps.examine-token.outputs.CONTINUE == 'true'
         run: uv publish 'wheels-*/*'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
       - name: Create GitHub Release
+        if: steps.examine-token.outputs.CONTINUE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: wheels-*/*
