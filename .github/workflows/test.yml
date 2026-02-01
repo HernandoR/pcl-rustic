@@ -388,7 +388,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Publish to PyPI
-        if: ${{ secrets.PYPI_API_TOKEN != '' }}
+        if: secrets.PYPI_API_TOKEN != ''
         run: uv publish 'wheels-*/*'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
