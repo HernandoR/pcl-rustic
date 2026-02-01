@@ -388,12 +388,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Publish to PyPI
-        run: |
-          if [ -z "$UV_PUBLISH_TOKEN" ]; then
-            echo "UV_PUBLISH_TOKEN is not set. Skipping publish step."
-            exit 0
-          fi
-          uv publish 'wheels-*/*'
+        if: secrets.PYPI_API_TOKEN != ''
+        run: uv publish 'wheels-*/*'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
