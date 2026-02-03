@@ -6,6 +6,7 @@ PCL Rustic pytest 配置和 fixtures
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -16,7 +17,7 @@ from loguru import logger
 # 配置 loguru 用于测试输出
 logger.remove()
 logger.add(
-    lambda msg: print(msg, end=""),
+    sys.stdout,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
     level="INFO",
     colorize=True,
