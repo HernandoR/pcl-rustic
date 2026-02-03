@@ -6,7 +6,6 @@ PCL Rustic pytest 配置和 fixtures
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -17,16 +16,8 @@ from loguru import logger
 
 # 配置 loguru 用于测试输出
 logger.remove()
-# Use sys.stdout with UTF-8 encoding to handle Chinese characters on Windows
-# Reconfigure stdout to use UTF-8 encoding with error handling
-utf8_stdout = io.TextIOWrapper(
-    sys.stdout.buffer,
-    encoding="utf-8",
-    errors="replace",  # Replace unencodable characters instead of failing
-    line_buffering=True,
-)
 logger.add(
-    utf8_stdout,
+    sys.stdout,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
     level="INFO",
     colorize=True,
