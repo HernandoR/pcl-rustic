@@ -6,7 +6,9 @@ PCL Rustic 性能基准测试
 
 from __future__ import annotations
 
+import io
 import math
+import sys
 import time
 from typing import Dict, Optional, Tuple
 
@@ -18,8 +20,16 @@ from pcl_rustic import DownsampleStrategy, PointCloud
 
 # 配置 loguru
 logger.remove()
+# Use sys.stdout with UTF-8 encoding to handle Chinese characters on Windows
+# Reconfigure stdout to use UTF-8 encoding with error handling
+utf8_stdout = io.TextIOWrapper(
+    sys.stdout.buffer,
+    encoding="utf-8",
+    errors="replace",  # Replace unencodable characters instead of failing
+    line_buffering=True,
+)
 logger.add(
-    lambda msg: print(msg, end=""),
+    utf8_stdout,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
     level="INFO",
     colorize=True,
