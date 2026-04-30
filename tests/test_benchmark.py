@@ -7,6 +7,7 @@ PCL Rustic 性能基准测试
 from __future__ import annotations
 
 import math
+import sys
 import time
 from typing import Dict, Optional, Tuple
 
@@ -19,7 +20,7 @@ from pcl_rustic import DownsampleStrategy, PointCloud
 # 配置 loguru
 logger.remove()
 logger.add(
-    lambda msg: print(msg, end=""),
+    sys.stdout,
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
     level="INFO",
     colorize=True,
