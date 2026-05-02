@@ -53,15 +53,20 @@ Queries accept either a slice of `[f32; 3]` host points or a `&HighPerformancePo
 Building a KD-tree on 50M points is non-trivial (~seconds). Cache it:
 
 ```rust
+use std::sync::OnceLock;
+
 pub struct HighPerformancePointCloud {
     // existing fields …
-    kdtree_cache: OnceCell<KdTree>,
+    // Thread-safe lazy cache so `kdtree()` can be called from `rayon` parallel code.
+    kdtree_cache: OnceLock<KdTree>,
 }
 
 impl HighPerformancePointCloud {
     pub fn kdtree(&self) -> &KdTree {
         self.kdtree_cache.get_or_init(|| KdTree::build(self).expect("kdtree build"))
     }
+    // Initialize with `OnceLock::new()` in constructors so `HighPerformancePointCloud`
+    // remains `Sync` when `KdTree` is `Sync`.
     // Invalidate on any mutation (transform/select/concat/downsample)
     fn invalidate_kdtree(&mut self) { self.kdtree_cache.take(); }
 }
