@@ -26,14 +26,19 @@ pub mod registration {
 
     pub struct ICPConvergenceCriteria {
         pub max_iteration: usize,
-        pub relative_fitness: f64,
-        pub relative_rmse: f64,
+        /// Convergence threshold on relative fitness change between iterations.
+        /// `f32` precision is sufficient for ICP convergence decisions.
+        pub relative_fitness: f32,
+        /// Convergence threshold on relative RMSE change between iterations.
+        /// `f32` precision is sufficient for ICP convergence decisions.
+        pub relative_rmse: f32,
     }
 
     pub enum TransformationEstimation {
         PointToPoint,
         PointToPlane,
-        Generalized { epsilon: f64 },  // GICP plane-to-plane regularization
+        /// GICP plane-to-plane regularization strength. `f32` is sufficient.
+        Generalized { epsilon: f32 },
     }
 
     pub struct RegistrationResult {
@@ -94,7 +99,18 @@ Per ICP iteration:
 
 **Point-to-Plane** — linearized Gauss-Newton with per-iteration target-normal projections. Requires `target.estimate_normals(...)` (RFC-0005) already called; verified at entry and a clear error if normals are missing.
 
-**Generalized ICP** — plane-to-plane formulation (Segal, Haehnel, Thrun 2009). Requires both source *and* target covariances per point. Store each covariance as a 6-component packed `AttributeValue::F32` attribute bundle (`cov_00, cov_01, cov_02, cov_11, cov_12, cov_22`) computed from a kNN neighborhood via `estimate_covariances(knn)` — a new method added in M6 alongside the estimator. Solve each iteration as a sum of Mahalanobis residuals via Gauss-Newton; reuse the linear solver from Point-to-Plane.
+**Generalized ICP** — plane-to-plane formulation (Segal, Haehnel, Thrun 2009). Requires both source *and* target covariances per point. Each covariance is the upper-triangle of a symmetric 3×3 matrix packed into a 6-element row, stored as a single `AttributeValue` named `"covariance"` using a 2D tensor of shape `[N, 6]`. The six column indices encode the following components (docstring on `estimate_covariances`):
+
+```
+index 0 → cov_00  (variance along X)
+index 1 → cov_01  (XY covariance)
+index 2 → cov_02  (XZ covariance)
+index 3 → cov_11  (variance along Y)
+index 4 → cov_12  (YZ covariance)
+index 5 → cov_22  (variance along Z)
+```
+
+This maps to the full matrix as `[[00, 01, 02], [01, 11, 12], [02, 12, 22]]`. Storing as a 2D tensor keeps the typed-attribute design aligned (extending `AttributeValue` with a `Tensor2` variant as needed in RFC-0002). `estimate_covariances(knn)` computes and writes this attribute; M6 does not use separate scalar attributes for covariance components. Solve each iteration as a sum of Mahalanobis residuals via Gauss-Newton; reuse the linear solver from Point-to-Plane.
 
 `epsilon` on the GICP variant regularizes the covariances toward planarity (Open3D exposes it as `epsilon=1e-3` by default) — surface through the enum constructor.
 
@@ -117,7 +133,7 @@ Early-exit diagnostic: log at `info` level which criterion triggered termination
 
 ### 3.6 Supporting work
 
-- New method `PointCloud::estimate_covariances(knn: usize)` — writes a packed 6-float attribute `"cov"`. Shares the kNN infra from RFC-0005.
+- New method `PointCloud::estimate_covariances(knn: usize)` — writes a 2D tensor attribute `"covariance"` of shape `[N, 6]` (upper-triangle packed, see §3.3 for component layout). Shares the kNN infra from RFC-0005.
 - `registration::evaluate` is a one-shot variant with no iteration, useful for acceptance testing and for users who want to score a known transform.
 
 ## 4. Acceptance criteria

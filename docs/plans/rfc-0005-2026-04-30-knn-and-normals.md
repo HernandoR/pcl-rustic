@@ -1,4 +1,4 @@
-# RFC-0005: Neighborhood Infra — KD-tree / Octree & Normal Estimation (M4)
+# RFC-0005: Neighborhood Infra — KD-tree, Octree & Normal Estimation (M4)
 
 - **Status:** Proposed
 - **Date:** 2026-04-30
@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-Add the nearest-neighbor infrastructure that outlier removal (RFC-0006) and ICP-family registration (RFC-0007) depend on: a fast KD-tree on the CPU via the `kiddo` crate, exposed as `knn(k)` and `radius_search(r)` on `PointCloud`, plus `estimate_normals(radius | knn)` that writes `nx/ny/nz` as typed attributes. GPU neighbor search is an explicit stretch goal; the CPU path is the committed deliverable.
+Add the nearest-neighbor infrastructure that outlier removal (RFC-0006) and ICP-family registration (RFC-0007) depend on: a fast KD-tree on the CPU via the `kiddo` crate, exposed as `knn(k)` and `radius_search(r)` on `PointCloud`, plus `estimate_normals(radius | knn)` that writes `nx/ny/nz` as typed attributes. An octree implementation is also included — either via a suitable crate or a purpose-built `pcl-rustic-octree` crate if no adequate crate exists. GPU neighbor search is an explicit stretch goal; both CPU index structures are committed deliverables.
 
 ## 2. Motivation
 
@@ -53,19 +53,22 @@ Queries accept either a slice of `[f32; 3]` host points or a `&HighPerformancePo
 Building a KD-tree on 50M points is non-trivial (~seconds). Cache it:
 
 ```rust
-use std::sync::OnceLock;
+use once_cell::sync::OnceCell;
 
 pub struct HighPerformancePointCloud {
     // existing fields …
     // Thread-safe lazy cache so `kdtree()` can be called from `rayon` parallel code.
-    kdtree_cache: OnceLock<KdTree>,
+    kdtree_cache: OnceCell<KdTree>,
 }
 
 impl HighPerformancePointCloud {
-    pub fn kdtree(&self) -> &KdTree {
-        self.kdtree_cache.get_or_init(|| KdTree::build(self).expect("kdtree build"))
+    /// Returns a reference to the cached KD-tree, building it on first call.
+    /// Returns `Err` if the build fails (e.g. empty cloud or invalid geometry)
+    /// so callers can propagate errors rather than panic.
+    pub fn kdtree(&self) -> Result<&KdTree> {
+        self.kdtree_cache.get_or_try_init(|| KdTree::build(self))
     }
-    // Initialize with `OnceLock::new()` in constructors so `HighPerformancePointCloud`
+    // Initialize with `OnceCell::new()` in constructors so `HighPerformancePointCloud`
     // remains `Sync` when `KdTree` is `Sync`.
     // Invalidate on any mutation (transform/select/concat/downsample)
     fn invalidate_kdtree(&mut self) { self.kdtree_cache.take(); }
@@ -111,7 +114,30 @@ normals = np.stack([pc.get_attribute("nx"), pc.get_attribute("ny"), pc.get_attri
 
 `radius_search` returns a Python `list[np.ndarray]` (ragged), not a 2D array — variable-length neighborhoods are unavoidable.
 
-### 3.5 GPU neighbor search (stretch)
+### 3.5 Octree
+
+An octree provides efficient range queries for spatially-clustered data and is complementary to the KD-tree. Implementation strategy:
+
+1. Survey available crates at implementation time (e.g. `octree`, `octomap-rs`). Use the most suitable one.
+2. If no suitable crate exists, create a `pcl-rustic-octree` sub-crate with a minimal but correct implementation (insert, range query, depth-limited traversal).
+
+```rust
+pub struct Octree { /* opaque */ }
+
+impl Octree {
+    pub fn build(pc: &HighPerformancePointCloud, max_depth: u8) -> Result<Self>;
+    pub fn range_search(&self, center: &[f32; 3], radius: f32) -> Vec<u64>;
+    pub fn voxel_centers(&self) -> Vec<[f32; 3]>;
+}
+
+impl HighPerformancePointCloud {
+    pub fn octree(&self, max_depth: u8) -> Result<Octree>;
+}
+```
+
+`octree()` is not cached (it is parameterized by `max_depth`) — callers construct and hold it explicitly.
+
+### 3.6 GPU neighbor search (stretch)
 
 Optional. Two candidate approaches if the CPU path shows up as a bottleneck in RFC-0007's ICP inner loop:
 
@@ -124,6 +150,8 @@ Neither is committed for M4. If adopted, keep the CPU `kiddo` path as the correc
 
 - [ ] `KdTree::build` / `knn` / `radius_search` implemented and tested against a brute-force oracle on 10k-point random clouds (exact match for kNN, setwise match for radius).
 - [ ] `PointCloud.kdtree()` cache works: tested that repeated `knn` calls on an unchanged cloud do not rebuild; tested that any mutating op invalidates.
+- [ ] `PointCloud.kdtree()` returns `Err` (not panic) on empty or invalid input; tested.
+- [ ] `Octree::build` / `range_search` implemented and tested against the same brute-force oracle; `PointCloud.octree(max_depth)` returns `Err` on empty input.
 - [ ] `estimate_normals(Knn | Radius | Hybrid)` ships; normals are unit-length within 1e-5; smoke test against a synthetic plane produces normals aligned to ±plane-normal for ≥ 99% of points.
 - [ ] Python API exposed per §3.4; `.pyi` stubs updated.
 - [ ] Benchmark: 10M-point kNN(k=16) on the reference machine completes in < 10 s build + < 2 s query; documented in `docs/performance/benchmarks.md`.
@@ -139,10 +167,9 @@ Neither is committed for M4. If adopted, keep the CPU `kiddo` path as the correc
 
 ## 6. Out of scope
 
-- Octree implementation — proposed only as a fallback if `kiddo` is unsuitable. No octree work commits unless that fallback triggers.
 - Oriented normals (`orient_normals_*`) — not required for M5/M6.
 - Feature descriptors (FPFH, SHOT) — deferred, no RFC in this batch.
-- GPU neighbor search — stretch (§3.5).
+- GPU neighbor search — stretch (§3.6).
 
 ## 7. Open questions
 

@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-Close LEO-36 priority #3 by shipping `concatenate`, a single `select(mask)` tensor primitive, and layered feature-/region-based selectors (`select_where`, `select_classifications`, `select_intensity_range`, `crop_aabb`, `crop_obb`). Ship priority #9's end-to-end example in two variants (spatial-grid split, classification-aware split). CPU-first implementation — RFC-0004 moves the hot path onto the GPU.
+Close LEO-36 priority #3 by shipping `concatenate`, a single `select(mask)` tensor primitive, and layered feature-/region-based selectors (`select_where`, `select_by_classification`, `select_intensity_range`, `crop_aabb`, `crop_obb`). Ship priority #9's end-to-end example in two variants (spatial-grid split, classification-aware split). CPU-first implementation — RFC-0004 moves the hot path onto the GPU.
 
 ## 2. Motivation
 
@@ -53,7 +53,7 @@ impl HighPerformancePointCloud {
         where T: BurnElement + PartialOrd;
 
     // LAS-aware convenience
-    pub fn select_classifications(&self, codes: &[u8]) -> Result<Self>;
+    pub fn select_by_classification(&self, codes: &[u8]) -> Result<Self>;
     pub fn select_return_number(&self, n: u8) -> Result<Self>;
     pub fn select_intensity_range(&self, lo: f32, hi: f32) -> Result<Self>;
     pub fn select_elevation_range(&self, lo: f32, hi: f32) -> Result<Self>;
@@ -69,7 +69,7 @@ Python ergonomics:
 ground = pc.select(pc.get_attribute("classification") == 2)
 
 # Sugar
-ground_and_buildings = pc.select_classifications([2, 6])
+ground_and_buildings = pc.select_by_classification([2, 6])
 first_returns        = pc.select_return_number(1)
 bright               = pc.select_intensity_range(0.4, 1.0)
 ```
@@ -128,12 +128,12 @@ Both examples load a test LAS file from `tests/data/` (add a small 10k-point fix
 ## 4. Acceptance criteria
 
 - [ ] `select(mask)`, `select_indices(indices)` implemented and tested; operate in place on the Burn tensor device.
-- [ ] `select_where`, `select_classifications`, `select_return_number`, `select_intensity_range`, `select_elevation_range` implemented and tested with LAS fixtures.
+- [ ] `select_where`, `select_by_classification`, `select_return_number`, `select_intensity_range`, `select_elevation_range` implemented and tested with LAS fixtures.
 - [ ] `crop_aabb`, `crop_obb`, `aabb()`, `obb()` implemented and tested.
 - [ ] `concatenate(&[&Self], ConcatPolicy)` implemented and tested for all three policies.
 - [ ] `translate`, `scale`, `rotate` match Open3D semantics; doc page at `docs/api/transform.md` updated.
 - [ ] Both end-to-end example scripts run to completion against the test fixture, produce expected point-count reductions, and are referenced from `docs/getting-started/examples.md`.
-- [ ] New tests cover: empty input, single-cloud concat, dtype-mismatch `ConcatPolicy::Strict` rejection, classification round-trip (LAS → select_classifications([2]) → LAS → read back → same subset).
+- [ ] New tests cover: empty input, single-cloud concat, dtype-mismatch `ConcatPolicy::Strict` rejection, classification round-trip (LAS → select_by_classification([2]) → LAS → read back → same subset).
 
 ## 5. Risks & mitigations
 

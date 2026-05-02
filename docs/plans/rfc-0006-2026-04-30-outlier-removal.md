@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-Close LEO-36 priority #7 with `remove_statistical_outlier(nb_neighbors, std_ratio)` and `remove_radius_outlier(nb_points, radius)`. Both reuse the KD-tree from RFC-0005 and return `(filtered_cloud, kept_indices_mask)` to match Open3D's signature. CPU implementation; the neighbor query is the hot path and RFC-0005's CPU KD-tree is sufficient for realistic input sizes.
+Close LEO-36 priority #7 with `remove_statistical_outlier(nb_neighbors, std_ratio)` and `remove_radius_outlier(nb_points, radius)`. Both reuse the KD-tree from RFC-0005 and return `(filtered_cloud, kept_mask)`, where `kept_mask` is a boolean per-input-point mask (`true` = kept). CPU implementation; the neighbor query is the hot path and RFC-0005's CPU KD-tree is sufficient for realistic input sizes.
 
 ## 2. Motivation
 
@@ -73,7 +73,9 @@ Open3D ships no defaults (all args required). We match that — no silent defaul
 
 ### 3.5 Threading & determinism
 
-`rayon` parallel iteration is deterministic w.r.t. output (we write into pre-allocated `Vec<f32>` indexed by point id, then reduce). No random tie-breaking. Repeat runs on the same input produce bit-identical masks.
+`rayon` parallel iteration writes per-point mean-distances into a pre-allocated `Vec<f32>` indexed by point ID, then reduces globally. The two-pass structure (parallel per-point distances, then sequential Welford over the `Vec`) produces **nearly** deterministic results: the per-point distances are exact (independent lookups), but the global `μ̄`/`σ` reduction may exhibit tiny floating-point differences across runs due to `rayon`'s non-deterministic scheduling order. Such differences are accepted — they can only move a point across the threshold if it is extremely close to `μ̄ + std_ratio · σ`, and the practical effect on cleaned point clouds is negligible.
+
+> **Implementation note:** Document in the code with a comment on the `μ̄`/`σ` computation that parallel reduction order is non-deterministic and that tiny FP differences are expected and intentional. If strict bit-identical output is ever required (e.g. for regression testing), a `remove_statistical_outlier_deterministic` variant using single-threaded Welford over the pre-computed `Vec<f32>` can be added with the same public signature — add it only if the performance trade-off is acceptable and a user surfaces the need.
 
 ## 4. Acceptance criteria
 
