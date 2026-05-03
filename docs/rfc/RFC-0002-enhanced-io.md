@@ -170,3 +170,180 @@ pub fn register_io_plugin(plugin: Box<dyn IoPlugin>);
 - [LAS 1.4 specification](https://www.asprs.org/divisions-committees/lidar-division/laser-las-file-format-exchange-activities)
 - [Parquet format specification](https://parquet.apache.org/docs/)
 - [RFC-0001: Core Architecture](RFC-0001-core-architecture.md)
+
+---
+
+## Review Notes — Reviewer A
+
+**Reviewer:** Reviewer A  
+**Date:** 2026-05-03  
+**Status:** Changes Requested
+
+---
+
+### 1. Naming mismatch with existing implementation
+
+The RFC proposes `PointCloud.from_file()` / `pc.to_file()` (§3.1) and `PointCloud.open()` (§3.2), but the **codebase already ships** `PointCloud.load_from_file()` / `pc.save_to_file()` (see `src/lib.rs` lines 471–527 and `src/io/mod.rs`). The RFC must either:
+
+- (a) adopt the existing names and describe this RFC as *extending* the already-landed API, or  
+- (b) explicitly propose a rename from `load_from_file` → `from_file` and treat that as a breaking change.
+
+As written, a reader cannot tell whether `from_file` is new or an alias. This ambiguity will cause confusion during implementation review.
+
+---
+
+### 2. Async contradiction in §3.2
+
+Section 3.2 proposes:
+
+> `ParquetChunkReader` — wraps `parquet::arrow::async_reader` row-group iteration
+
+But the *Alternatives Considered* table explicitly rejects:
+
+> **Async Rust (`tokio`) throughout** — PyO3 async support is immature; adds build complexity
+
+`parquet::arrow::async_reader` **requires a `tokio` runtime**. You cannot use it in a synchronous PyO3 context without `block_on`, which reintroduces exactly the complexity the alternatives table rules out. Either:
+
+- Use `parquet::arrow::arrow_reader::ParquetRecordBatchReader` (the sync row-group iterator) instead, or  
+- Add an explicit "GIL-releasing sync wrapper around `tokio::runtime::Handle::block_on`" to the design and justify it.
+
+This contradiction must be resolved before implementation begins.
+
+---
+
+### 3. Dependency section is out of date and incomplete
+
+The RFC's dependency table (§3.5) has two problems:
+
+| RFC claims | Cargo.toml reality |
+|---|---|
+| `arrow-rs` / `parquet` 51.x | `arrow = "^57.2.0"`, `parquet = "^57.2.0"` already present |
+| `las` 0.8.x | `las = "0.9.9"` already present |
+| *(not mentioned)* | `polars = "^0.52.0"` is the **actual** Parquet/CSV backend |
+
+`polars` is the heaviest dependency in the graph, yet it is completely absent from the RFC. The existing `src/io/table.rs` uses `polars::prelude::*` for all Parquet and CSV I/O — not `arrow-rs` or `arrow2`. The RFC's claim of "Use `arrow2` (or `arrow-rs`) for zero-copy serialisation" is therefore incorrect today. The RFC must:
+
+1. Acknowledge `polars` as the current backend and justify keeping or replacing it.  
+2. Resolve the `arrow2` vs `arrow-rs` ambiguity — `arrow2` is largely unmaintained; `arrow-rs` (Apache) is the recommended choice, and it is already in `Cargo.toml`.  
+3. Update all version pins to match the actual `Cargo.toml`.
+
+---
+
+### 4. Existing RGB round-trip bug must be addressed
+
+In `src/io/table.rs` (lines 187–193), RGB channels are **written to the DataFrame as `Vec<u32>`**, but `get_u8_col` (lines 219–242) only recognises `u8`, `u16`, `i32`, and `i64` columns — it will **not** match `u32`. Any Parquet or CSV round-trip that includes RGB data will silently drop the colour channels on read-back.
+
+This is a pre-existing bug, but §3.3 (Full Parquet Round-Trip) explicitly targets attribute preservation, so this RFC owns fixing it. Suggested fix: write RGB as `UInt8` columns directly (convert `u8` → `u8` via `Vec<u8>` Series), matching the schema table proposed in §3.3 which already lists `r`, `g`, `b` as `UInt8`.
+
+---
+
+### 5. Path traversal and security in `IoPlugin` trait
+
+The `IoPlugin` trait (§3.4) declares:
+
+```rust
+fn read(&self, path: &str) -> Result<HighPerformancePointCloud>;
+fn write(&self, pc: &HighPerformancePointCloud, path: &str) -> Result<()>;
+```
+
+Using `&str` instead of `&std::path::Path` loses all platform-aware path validation. More critically, **the plugin registry exposes an arbitrary-write primitive**: a malicious or buggy third-party plugin could write to any path the process has permission to reach (including `../../../etc/cron.d/...` under certain deployments). Recommended mitigations:
+
+- Change signatures to `&Path`.  
+- Specify that `detect_format` (§3.1) must canonicalize and validate the path (no `..` components, no symlinks to outside the working tree if a root is configurable) before dispatching to any plugin.  
+- Similarly, the existing `path: &str` in `from_las_laz`, `to_las`, `load_from_file`, etc. (`src/io/`) should be audited for path traversal.
+
+---
+
+### 6. No atomic write strategy for large files
+
+If a write is interrupted mid-stream (OOM, SIGKILL, disk full), the output file will be left in a partial and unreadable state — silently overwriting a previously valid file at the same path. For a library targeting 50 GB+ files this is a significant operational risk.
+
+Recommendation: specify that `to_file` / `save_to_file` must write to a sibling `.tmp` file and `rename(2)` on completion. This is a one-syscall atomic operation on POSIX systems and is achievable on Windows via `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`. Add a test case for "interrupted write leaves original file intact."
+
+---
+
+### 7. `IoPlugin` registry concurrency not specified
+
+`register_io_plugin(plugin: Box<dyn IoPlugin>)` is called at runtime, potentially from multiple threads (e.g., two Python extensions registering in parallel `import` statements). The RFC does not specify:
+
+- Whether the registry is a global `OnceLock<RwLock<Vec<...>>>` or similar.  
+- Whether registering the same extension twice is an error, a warning, or silently last-wins.  
+- Whether plugin lookup during `detect_format` requires a read-lock that can deadlock with a concurrent write.
+
+This must be specified before implementation; a `OnceLock<RwLock<Vec<Box<dyn IoPlugin>>>>` pattern is recommended.
+
+---
+
+### 8. Chunk reader Python API is underspecified
+
+The example in §3.2 uses:
+
+```python
+with PointCloud.open("huge_scan.las", chunk_size=1_000_000) as reader:
+    for chunk in reader:
+        result.to_file(f"out_{i}.parquet")   # ← `i` is never defined
+```
+
+The RFC does not describe the Python class `PointCloudChunkReader` at all: its `__enter__`/`__exit__` contract, whether it implements `__iter__`+`__next__` or is a generator, how `StopIteration` is raised, and how errors mid-stream are surfaced. Also, `i` is undefined in the example loop — the code would raise `NameError`. Please fix the example and add a full Python API sketch (similar to how §3.1 shows the full Rust signature).
+
+---
+
+### 9. `chunk_size=0` and last-chunk edge cases not handled
+
+The design does not state what should happen when:
+
+- `chunk_size=0` is passed — this should raise `ValueError` eagerly, not produce an infinite loop.  
+- The final chunk has fewer than `chunk_size` points — this is the common case and should be explicitly documented as guaranteed/expected behaviour.  
+- The file has 0 points — the iterator should yield zero chunks (not one empty `PointCloud`).
+
+These should be added to both the design prose and the testing plan.
+
+---
+
+### 10. GIL strategy for long-running I/O not addressed
+
+Reading a 50 GB LAS file on a single thread while holding the Python GIL will freeze the entire Python interpreter for the duration. The RFC should specify whether the Rust I/O methods release the GIL via `py.allow_threads(|| ...)` and, if so, how that interacts with the PyO3 `&Python` lifetime requirements in the chunk iterator.
+
+This is particularly important for the chunk reader, where a Python `for` loop will re-acquire/release the GIL on every iteration boundary.
+
+---
+
+### 11. Testing plan gaps
+
+The current plan is a good start but is missing the following cases:
+
+| Missing test | Why it matters |
+|---|---|
+| Zero-point cloud round-trip (all formats) | Empty files / empty subsets are common edge cases |
+| `chunk_size` larger than total points | Must yield exactly one partial chunk, not crash |
+| `chunk_size=0` raises `ValueError` | Guard against silent infinite loops |
+| File path with Unicode / non-ASCII characters | Common on non-English systems |
+| Write to read-only directory raises `PermissionError` | Python users expect OS errors as Python exceptions |
+| NaN / Inf values in XYZ coordinates | LAS format does not support NaN; should error, not silently corrupt |
+| Interrupted write leaves original file intact | Validates atomic-write requirement from §6 above |
+| Magic-byte detection for extension-less files | The design in §3.1 says "reads first 8 bytes if ambiguous" — test it |
+| Plugin: same extension registered twice | Registry collision policy |
+| Concurrent reads of the same file from multiple threads | Data race / shared file descriptor |
+| Rust `cargo test` coverage for streaming code | The plan only mentions pytest; Rust unit tests should also be specified |
+| Performance regression benchmark | A >2 GB/s Parquet claim (§Performance Implications) needs a CI benchmark gate |
+
+---
+
+### 12. Missing unresolved questions
+
+The following questions should be added to §Unresolved Questions:
+
+4. **Canonical API name**: should the Python entry points be `from_file`/`to_file` (RFC proposal) or `load_from_file`/`save_to_file` (current code)? Pick one before implementation.  
+5. **GIL release policy**: which I/O methods release the GIL, and via what mechanism?  
+6. **Atomic write**: is the `.tmp`+rename pattern required for all formats or only for large-file paths?  
+7. **`total_points()` for CSV**: CSV has no header with point count; `Option<u64>` will always be `None` for `CsvChunkReader`. Should the Python layer expose a progress indicator that works without a total?  
+8. **Plugin collision policy**: last-wins, first-wins, or `Err`?  
+9. **`delete_file` scope**: the static `PointCloud.delete_file(path)` method is already exposed on the Python class. Should it remain, or should I/O cleanup be left to the caller?
+
+---
+
+### Minor / Line-Level Notes
+
+- **§3.1 Rust snippet**: `FileFormat::Unknown(ext)` captures the extension as a `String` — but if `detect_format` falls through to magic bytes and still cannot identify the format, it has no extension to report. Ensure the `Unknown` variant can also carry a descriptive message (e.g., `Unknown { ext: Option<String>, magic: Option<[u8;8]> }`).
+- **§3.3 schema table**: `x`, `y`, `z` are listed as `Float32` but LAS stores coordinates as `f64` (double) after scale/offset application. Downgrading to `f32` during Parquet write is lossy for high-precision surveys (sub-centimetre accuracy at city scale). Consider making the XYZ type `Float64` or at minimum documenting the precision loss.
+- **§3.5**: The `csv` crate is listed as "already present" but the actual CSV implementation in `table.rs` uses `polars` CSV reader, not the `csv` crate directly. Verify whether the `csv` crate dependency is still needed, or remove it to reduce compile times.
