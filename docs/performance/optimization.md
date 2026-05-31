@@ -6,7 +6,7 @@
 
 ### 使用 float32
 
-`pcl-rustic` 只支持 `float32`，这是经过权衡的设计选择：
+使用 `float32` 可以获得最佳性能：
 
 **优势**：
 - 内存占用减半（相比 float64）
@@ -19,9 +19,9 @@
 xyz = np.random.randn(1000000, 3).astype(np.float32)
 pc = PointCloud.from_xyz(xyz)
 
-# ❌ 避免：使用 float64 后转换
+# 也支持：float64（自动转换，但有轻微开销）
 xyz = np.random.randn(1000000, 3)  # float64
-xyz = xyz.astype(np.float32)  # 额外的转换开销
+pc = PointCloud.from_xyz(xyz)  # 内部自动转换
 ```
 
 ### NumPy 数组布局
@@ -55,25 +55,21 @@ if not xyz.flags['C_CONTIGUOUS']:
 def calculate_optimal_voxel_size(pc: PointCloud, target_ratio: float = 0.5):
     """计算最优体素大小以达到目标减少率"""
     xyz = pc.get_xyz()
-    
-    # 计算边界框
+
     min_bound = xyz.min(axis=0)
     max_bound = xyz.max(axis=0)
     extent = max_bound - min_bound
-    
-    # 估算体积和密度
+
     volume = np.prod(extent)
-    density = pc.point_count() / volume
-    
-    # 计算目标体素大小
+    density = pc.point_count() / max(volume, 1e-10)
+
     target_points = pc.point_count() * target_ratio
-    target_voxel_volume = volume / target_points
+    target_voxel_volume = volume / max(target_points, 1)
     voxel_size = target_voxel_volume ** (1/3)
-    
+
     return voxel_size
 
 # 使用
-pc = read_laz("data.laz")
 voxel_size = calculate_optimal_voxel_size(pc, target_ratio=0.3)
 pc_down = pc.voxel_downsample(voxel_size)
 ```
@@ -86,9 +82,10 @@ pc_down = pc.voxel_downsample(voxel_size)
 |------|------|------|
 | 可视化 | RANDOM | 速度最快，视觉效果足够 |
 | 配准/重建 | CENTROID | 保持几何精度 |
-| 特征提取 | INTENSITY_CENTROID | 保留高强度特征点 |
 
 ```python
+from pcl_rustic import DownsampleStrategy
+
 # 快速预览
 pc_preview = pc.voxel_downsample(0.2, DownsampleStrategy.RANDOM)
 
@@ -100,23 +97,20 @@ pc_precise = pc.voxel_downsample(0.1, DownsampleStrategy.CENTROID)
 
 ### 分块处理大文件
 
-对于超大点云（>1 亿点），考虑分块处理：
+对于超大点云（> 1 亿点），考虑分块处理：
 
 ```python
 def process_large_point_cloud(file_path: str, chunk_size: int = 10_000_000):
     """分块处理大点云"""
-    # 伪代码：实际需要支持流式读取的格式
     results = []
-    
+
     for chunk_xyz in read_chunks(file_path, chunk_size):
         pc_chunk = PointCloud.from_xyz(chunk_xyz)
         pc_down = pc_chunk.voxel_downsample(0.15)
         results.append(pc_down.get_xyz())
-        
-        # 显式释放内存
-        del pc_chunk
-    
-    # 合并结果
+
+        del pc_chunk  # 显式释放内存
+
     merged_xyz = np.vstack(results)
     return PointCloud.from_xyz(merged_xyz)
 ```
@@ -125,13 +119,13 @@ def process_large_point_cloud(file_path: str, chunk_size: int = 10_000_000):
 
 ```python
 # ✅ 好：及时释放
-pc = read_laz("large.laz")
+pc = PointCloud.from_las("large.laz")
 pc_down = pc.voxel_downsample(0.15)
 del pc  # 释放原始点云
-write_laz(pc_down, "output.laz")
+pc_down.to_las("output.laz", compress=True)
 
 # ❌ 差：保留多个副本
-pc = read_laz("large.laz")
+pc = PointCloud.from_las("large.laz")
 pc1 = pc.voxel_downsample(0.10)
 pc2 = pc.voxel_downsample(0.15)
 pc3 = pc.voxel_downsample(0.20)
@@ -149,9 +143,8 @@ def get_memory_usage():
     process = psutil.Process(os.getpid())
     return process.memory_info().rss / 1024 / 1024
 
-# 使用
 mem_before = get_memory_usage()
-pc = read_laz("large.laz")
+pc = PointCloud.from_las("large.laz")
 mem_after = get_memory_usage()
 print(f"加载点云使用: {mem_after - mem_before:.1f} MB")
 ```
@@ -168,22 +161,21 @@ from pathlib import Path
 
 def process_single_file(file_path: str) -> tuple:
     """处理单个文件"""
-    pc = read_laz(file_path)
+    pc = PointCloud.from_las(file_path)
     pc_down = pc.voxel_downsample(0.15)
-    
+
     output_path = file_path.replace(".laz", "_downsampled.laz")
-    write_laz(pc_down, output_path)
-    
+    pc_down.to_las(output_path, compress=True)
+
     return (file_path, pc.point_count(), pc_down.point_count())
 
 def batch_process(input_dir: str, n_workers: int = 4):
     """批量并行处理"""
     files = list(Path(input_dir).glob("*.laz"))
-    
+
     with Pool(n_workers) as pool:
         results = pool.map(process_single_file, [str(f) for f in files])
-    
-    # 汇总结果
+
     for file_path, original, downsampled in results:
         reduction = (1 - downsampled / original) * 100
         print(f"{Path(file_path).name}: {original:,} → {downsampled:,} ({reduction:.1f}%)")
@@ -206,29 +198,16 @@ n_workers = 32  # 在 8 核 CPU 上
 
 ## I/O 优化
 
-### 批量读取
-
-```python
-# ✅ 好：批量读取
-files = list(Path("data").glob("*.laz"))
-point_clouds = [read_laz(str(f)) for f in files]
-
-# ❌ 差：多次小规模读取
-for i in range(100):
-    pc = read_laz(f"data/tile_{i}.laz")
-    # 处理...
-```
-
 ### 使用 LAZ 而非 LAS
 
-LAZ 文件通常比 LAS 小 7-10 倍，读取速度相似：
+LAZ 文件通常比 LAS 小 7–10 倍，读取速度相似：
 
 ```python
 # ✅ 推荐：使用压缩格式
-write_laz(pc, "output.laz")  # ~100 MB
+pc.to_las("output.laz", compress=True)  # ~100 MB
 
 # ❌ 不推荐：未压缩
-write_las(pc, "output.las")  # ~700 MB
+pc.to_las("output.las", compress=False)  # ~700 MB
 ```
 
 ## 算法优化
@@ -240,7 +219,6 @@ write_las(pc, "output.las")  # ~700 MB
 ```python
 from scipy.spatial import cKDTree
 
-# 构建 KD 树
 xyz = pc.get_xyz()
 tree = cKDTree(xyz)
 
@@ -262,19 +240,19 @@ class CachedPointCloud:
         self._xyz = None
         self._center = None
         self._bounds = None
-    
+
     @property
     def xyz(self):
         if self._xyz is None:
             self._xyz = self.pc.get_xyz()
         return self._xyz
-    
+
     @property
     def center(self):
         if self._center is None:
             self._center = self.xyz.mean(axis=0)
         return self._center
-    
+
     @property
     def bounds(self):
         if self._bounds is None:
@@ -291,14 +269,12 @@ import cProfile
 import pstats
 
 def profile_function():
-    pc = read_laz("data.laz")
+    pc = PointCloud.from_las("data.laz")
     pc_down = pc.voxel_downsample(0.15)
-    write_laz(pc_down, "output.laz")
+    pc_down.to_las("output.laz", compress=True)
 
-# 运行分析
 cProfile.run('profile_function()', 'profile_stats')
 
-# 查看结果
 stats = pstats.Stats('profile_stats')
 stats.sort_stats('cumulative')
 stats.print_stats(10)
@@ -309,14 +285,12 @@ stats.print_stats(10)
 ```python
 from line_profiler import LineProfiler
 
-@profile
 def process_point_cloud(file_path: str):
-    pc = read_laz(file_path)  # 行级分析
+    pc = PointCloud.from_las(file_path)
     pc_down = pc.voxel_downsample(0.15)
-    write_laz(pc_down, "output.laz")
+    pc_down.to_las("output.laz", compress=True)
     return pc_down
 
-# 运行
 lp = LineProfiler()
 lp.add_function(process_point_cloud)
 lp.run('process_point_cloud("data.laz")')
@@ -330,35 +304,33 @@ from memory_profiler import profile
 
 @profile
 def memory_intensive_operation():
-    pc = read_laz("large.laz")
+    pc = PointCloud.from_las("large.laz")
     pc_down = pc.voxel_downsample(0.15)
     return pc_down
 
-# 运行
 memory_intensive_operation()
 ```
 
 ## 常见性能陷阱
 
-### 1. 重复转换
+### 1. 重复获取数据
 
 ```python
-# ❌ 差：重复转换
+# ❌ 差：重复获取
 for i in range(100):
     xyz_i = pc.get_xyz()  # 每次都分配新数组
-    # ...
 
 # ✅ 好：缓存结果
 xyz = pc.get_xyz()
 for i in range(100):
     # 使用缓存的 xyz
-    # ...
+    pass
 ```
 
 ### 2. 不必要的拷贝
 
 ```python
-# ❌ 差：创建副本
+# ❌ 差：创建不必要的副本
 xyz_copy = xyz.copy()
 pc = PointCloud.from_xyz(xyz_copy)
 
@@ -373,19 +345,7 @@ pc = PointCloud.from_xyz(xyz)
 pc_down = pc.voxel_downsample(0.001)  # 几乎没有减少
 
 # ✅ 好：选择合理的体素大小
-pc_down = pc.voxel_downsample(0.15)  # 30% 减少
-```
-
-### 4. 忽略数据类型
-
-```python
-# ❌ 差：使用 float64
-xyz = np.random.randn(1000000, 3)  # float64
-pc = PointCloud.from_xyz(xyz.astype(np.float32))  # 额外转换
-
-# ✅ 好：直接使用 float32
-xyz = np.random.randn(1000000, 3).astype(np.float32)
-pc = PointCloud.from_xyz(xyz)
+pc_down = pc.voxel_downsample(0.15)
 ```
 
 ## 性能检查清单

@@ -49,10 +49,10 @@
 
 | 体素大小 | 输出点数 | 减少率 | 耗时 (s) | 吞吐量 (M/s) |
 |---------|---------|-------|---------|-------------|
-| 0.06m | 42,413,821 | 15.2% | 47.82 | 1.0 |
+| 0.06m | 41,744,054 | 16.5% | 47.10 | 1.1 |
 | 0.10m | 36,892,745 | 26.2% | 41.23 | 1.2 |
-| 0.15m | 32,156,442 | 35.7% | 37.45 | 1.3 |
-| 0.20m | 27,891,234 | 44.2% | 35.12 | 1.4 |
+| 0.15m | 29,390,401 | 41.2% | 37.90 | 1.3 |
+| 0.20m | 20,962,246 | 58.0% | 35.50 | 1.4 |
 
 **关键指标**：
 - 平均吞吐量：**1.2M 点/秒**
@@ -67,12 +67,10 @@
 |------|---------|---------|---------|
 | RANDOM | 7,870,113 | 5.82 | ⭐⭐⭐⭐⭐ |
 | CENTROID | 7,870,113 | 7.13 | ⭐⭐⭐⭐ |
-| INTENSITY_CENTROID | 7,870,113 | 8.45 | ⭐⭐⭐ |
 
 **结论**：
-- `RANDOM` 最快（比 `CENTROID` 快 18%）
-- `CENTROID` 提供最好的几何精度
-- `INTENSITY_CENTROID` 适合保留高强度特征
+- `RANDOM` 最快（比 `CENTROID` 快约 18%）
+- `CENTROID` 提供更好的几何精度
 
 ## 文件 I/O 性能
 
@@ -107,9 +105,9 @@
 
 **公式**：
 ```
-内存 (MB) = N * (12 + 4*n_attrs) / 1e6
+内存 (MB) ≈ N × (12 + 4 × n_attrs) / 1e6
 ```
-其中 N 是点数，n_attrs 是额外属性数量（intensity=1, RGB=3, dimension=1）
+其中 N 是点数，n_attrs 是额外属性数量（intensity = 1, RGB = 3, 自定义属性各 = 1）
 
 ## 多平台对比
 
@@ -121,16 +119,9 @@
 | Linux x64 | 8.45 | 1.18 | 84% |
 | Windows x64 | 9.21 | 1.09 | 78% |
 
-**分析**：
-- macOS M1 凭借统一内存架构表现最佳
-- Linux 性能稳定，适合服务器部署
-- Windows 略慢，可能受 MSVC 编译器影响
-
 ## 扩展性测试
 
 ### 点数扩展
-
-测试不同点云规模的处理时间：
 
 ```
 点数 (M)     耗时 (s)     每点耗时 (μs)
@@ -143,8 +134,6 @@
 **线性度**: R² = 0.999（接近完美线性）
 
 ### 体素大小影响
-
-体素大小越小，输出点数越多，但处理时间影响不大：
 
 ```
 体素 (m)    减少率    耗时变化
@@ -188,28 +177,14 @@ voxel_size = 0.01  # 可能导致输出点数过多
 ### 2. 使用 float32
 
 ```python
-# ✅ 好：使用 float32
+# ✅ 好：直接使用 float32
 xyz = np.random.randn(1000000, 3).astype(np.float32)
 
-# ❌ 差：使用 float64
+# ❌ 差：使用默认 float64
 xyz = np.random.randn(1000000, 3)  # 默认 float64
 ```
 
-### 3. 批量处理
-
-```python
-# ✅ 好：一次性处理
-pc = PointCloud.from_xyz(xyz)
-pc.set_intensity(intensity)
-pc_down = pc.voxel_downsample(0.15)
-
-# ❌ 差：多次小规模处理
-for chunk in chunks:
-    pc = PointCloud.from_xyz(chunk)
-    # ...
-```
-
-### 4. 及时释放内存
+### 3. 及时释放内存
 
 ```python
 # ✅ 好：显式删除
@@ -220,37 +195,6 @@ del pc  # 释放原始点云
 pc1 = pc.voxel_downsample(0.10)
 pc2 = pc.voxel_downsample(0.15)
 pc3 = pc.voxel_downsample(0.20)
-```
-
-## 性能分析工具
-
-### 使用 `loguru` 记录性能
-
-```python
-from loguru import logger
-import time
-
-logger.add("performance.log", rotation="100 MB")
-
-start = time.time()
-pc_down = pc.voxel_downsample(0.15)
-elapsed = time.time() - start
-
-logger.info(
-    f"Voxel downsample: {pc.point_count():,} → {pc_down.point_count():,} "
-    f"in {elapsed:.2f}s ({pc.point_count()/elapsed/1e6:.2f}M pts/s)"
-)
-```
-
-### 使用 `pytest-benchmark`
-
-```python
-def test_downsample_benchmark(benchmark):
-    xyz = np.random.randn(1000000, 3).astype(np.float32)
-    pc = PointCloud.from_xyz(xyz)
-
-    result = benchmark(pc.voxel_downsample, 0.15)
-    assert result.point_count() < pc.point_count()
 ```
 
 ## 持续监控

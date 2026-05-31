@@ -4,8 +4,28 @@
 
 ## API 列表
 
-- `PointCloud.transform(matrix: np.ndarray) -> PointCloud` - 应用 4x4 仿射变换矩阵
-- `PointCloud.rigid_transform(rotation: np.ndarray, translation: np.ndarray) -> PointCloud` - 应用旋转和平移
+| 方法 | 说明 |
+|------|------|
+| `transform(matrix)` | 应用 3×3 或 4×4 变换矩阵 |
+| `rigid_transform(rotation, translation)` | 应用 3×3 旋转矩阵 + 3 维平移向量 |
+
+### transform — 矩阵变换
+
+```
+PointCloud.transform(matrix: np.ndarray) -> PointCloud
+```
+
+- **3×3 矩阵**：旋转/缩放变换
+- **4×4 矩阵**：齐次坐标变换（旋转 + 平移）
+
+### rigid_transform — 刚体变换
+
+```
+PointCloud.rigid_transform(rotation: np.ndarray, translation: np.ndarray) -> PointCloud
+```
+
+- `rotation`：3×3 旋转矩阵
+- `translation`：长度为 3 的平移向量
 
 ## 使用示例
 
@@ -33,11 +53,9 @@ print(f"实际位移: {diff}")
 
 ### 旋转变换
 
-#### 绕 Z 轴旋转 90 度
+#### 绕 Z 轴旋转
 
 ```python
-import numpy as np
-
 # 90 度旋转矩阵（绕 Z 轴）
 angle = np.pi / 2
 rotation = np.array([
@@ -52,7 +70,6 @@ pc_rotated = pc.rigid_transform(rotation, np.zeros(3, dtype=np.float32))
 #### 绕 X 轴旋转
 
 ```python
-# 90 度旋转矩阵（绕 X 轴）
 angle = np.pi / 2
 rotation = np.array([
     [1, 0,              0             ],
@@ -66,7 +83,6 @@ pc_rotated = pc.rigid_transform(rotation, np.zeros(3, dtype=np.float32))
 #### 绕 Y 轴旋转
 
 ```python
-# 90 度旋转矩阵（绕 Y 轴）
 angle = np.pi / 2
 rotation = np.array([
     [ np.cos(angle), 0, np.sin(angle)],
@@ -79,10 +95,10 @@ pc_rotated = pc.rigid_transform(rotation, np.zeros(3, dtype=np.float32))
 
 ### 组合变换
 
-#### 先旋转后平移
+#### 链式调用（先旋转后平移）
 
 ```python
-# 1. 旋转 45 度
+# 1. 旋转 45 度绕 Z 轴
 angle = np.pi / 4
 rotation = np.array([
     [np.cos(angle), -np.sin(angle), 0],
@@ -92,18 +108,31 @@ rotation = np.array([
 
 pc_rotated = pc.rigid_transform(rotation, np.zeros(3, dtype=np.float32))
 
-# 2. 平移
+# 2. 再平移
 translation = np.array([10.0, 0.0, 0.0], dtype=np.float32)
 pc_transformed = pc_rotated.rigid_transform(np.eye(3, dtype=np.float32), translation)
 ```
 
-#### 使用 4x4 变换矩阵
+#### 使用 3×3 矩阵（仅旋转/缩放）
 
 ```python
-# 构建 4x4 变换矩阵（旋转 + 平移）
+# 3×3 矩阵可直接用于 transform
+rotation_3x3 = np.array([
+    [0, -1, 0],
+    [1,  0, 0],
+    [0,  0, 1]
+], dtype=np.float32)
+
+pc_rotated = pc.transform(rotation_3x3)
+```
+
+#### 使用 4×4 变换矩阵
+
+```python
+# 构建 4×4 变换矩阵（齐次坐标，旋转 + 平移）
 transform = np.eye(4, dtype=np.float32)
 
-# 设置旋转部分 (3x3)
+# 旋转部分 (3×3)
 angle = np.pi / 4
 transform[:3, :3] = np.array([
     [np.cos(angle), -np.sin(angle), 0],
@@ -111,10 +140,9 @@ transform[:3, :3] = np.array([
     [0,              0,              1]
 ], dtype=np.float32)
 
-# 设置平移部分 (3x1)
+# 平移部分
 transform[:3, 3] = np.array([10.0, 20.0, 30.0], dtype=np.float32)
 
-# 应用变换
 pc_transformed = pc.transform(transform)
 ```
 

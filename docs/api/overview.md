@@ -1,6 +1,6 @@
 # API 概览
 
-本节提供 `pcl-rustic` 的完整 API 参考文档，文档由手工维护并与当前接口保持一致。
+本节提供 `pcl-rustic` 的完整 API 参考文档。
 
 ## 核心模块
 
@@ -12,7 +12,7 @@ pcl-rustic 提供以下主要模块和类：
 
 **主要功能**：
 - 从 NumPy 数组创建点云
-- 属性管理（强度、RGB 颜色等）
+- 属性管理（强度、RGB 颜色、自定义属性）
 - 获取点云统计信息
 
 ### 下采样 (Downsample)
@@ -21,16 +21,15 @@ pcl-rustic 提供以下主要模块和类：
 
 **主要功能**：
 - 体素下采样
-- 多种降采样策略（质心、随机、强度加权质心）
+- 2 种降采样策略：随机（RANDOM）、质心（CENTROID）
 
 ### 坐标变换 (Transform)
 
 [变换模块](transform.md) 提供坐标系变换功能。
 
 **主要功能**：
-- 平移变换
-- 旋转变换
-- 仿射变换
+- 刚体变换（旋转 + 平移）
+- 矩阵变换（支持 3×3 和 4×4）
 
 ### 文件 I/O
 
@@ -39,12 +38,30 @@ pcl-rustic 提供以下主要模块和类：
 **主要功能**：
 - LAZ/LAS 文件读写
 - CSV 文件读写
-- Parquet 文件读写（规划中）
+- Parquet 文件读写
+- 自动格式检测（load_from_file / save_to_file）
 
 ## 数据类型要求
 
-!!! warning "重要"
-    所有输入的 NumPy 数组必须是 **`dtype=float32`**。如果数据是其他类型，需要使用 `.astype(np.float32)` 转换。
+### 输入数据
+
+`from_xyz` 支持多种 NumPy dtype：
+
+| dtype | 支持 | 说明 |
+|-------|------|------|
+| `float32` | ✅ | 推荐，零拷贝 |
+| `float64` | ✅ | 自动转换 |
+| `int32` | ✅ | 自动转换 |
+| `int64` | ✅ | 自动转换 |
+
+!!! warning "自定义属性要求"
+    `set_intensity`、`set_rgb`、`add_attribute`、`set_attribute` 等方法的输入数组必须是 **`dtype=float32`**。
+
+### 输出数据
+
+- `get_xyz()` 返回 `dtype=float32` 的 NumPy 数组（shape `[N, 3]`）
+- `get_intensity()` 返回 `dtype=float32` 的 NumPy 数组（shape `[N]`）
+- `get_rgb()` 返回 3 个 `dtype=uint8` 的 NumPy 数组（shape `[N]`）
 
 ## 快速索引
 
@@ -52,11 +69,15 @@ pcl-rustic 提供以下主要模块和类：
 |---------|------|------|
 | `PointCloud` | 核心点云类 | [详情](pointcloud.md) |
 | `PointCloud.from_xyz()` | 从 XYZ 数组创建 | [详情](pointcloud.md) |
+| `PointCloud.from_las()` | 读取 LAZ/LAS 文件 | [详情](io.md) |
+| `PointCloud.from_csv()` | 读取 CSV 文件 | [详情](io.md) |
+| `PointCloud.from_parquet()` | 读取 Parquet 文件 | [详情](io.md) |
 | `voxel_downsample()` | 体素下采样 | [详情](downsample.md) |
-| `transform()` | 矩阵变换 | [详情](transform.md) |
+| `transform()` | 矩阵变换（3×3 / 4×4） | [详情](transform.md) |
 | `rigid_transform()` | 刚体变换 | [详情](transform.md) |
-| `from_las()` | 读取 LAZ/LAS 文件 | [详情](io.md) |
 | `to_las()` | 写入 LAZ/LAS 文件 | [详情](io.md) |
+| `DownsampleStrategy.RANDOM` | 随机采样策略 | [详情](downsample.md) |
+| `DownsampleStrategy.CENTROID` | 质心采样策略 | [详情](downsample.md) |
 
 ## 使用示例
 

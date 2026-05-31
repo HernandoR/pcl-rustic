@@ -2,7 +2,7 @@
 
 ## 系统要求
 
-- **Python**: 3.9 或更高版本
+- **Python**: 3.10 或更高版本
 - **Rust**: 1.70+ (仅从源码安装时需要)
 - **操作系统**: Linux, macOS, Windows
 
@@ -116,7 +116,6 @@ pip install pcl-rustic[docs]
 如果遇到 libtorch 相关错误，确保安装了 libtorch：
 
 ```bash
-# 使用 Homebrew
 brew install libtorch
 ```
 

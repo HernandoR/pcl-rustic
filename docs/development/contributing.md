@@ -11,22 +11,22 @@
 
 ## 如何贡献
 
-### 报告Bug
+### 报告 Bug
 
-在[GitHub Issues](https://github.com/YOUR_USERNAME/pcl-rustic/issues)中创建bug报告，请包含：
+在 [GitHub Issues](https://github.com/YOUR_USERNAME/pcl-rustic/issues) 中创建 bug 报告，请包含：
 
 - **描述**: 清晰简洁的问题描述
 - **复现步骤**: 详细的复现步骤
 - **期望行为**: 应该发生什么
 - **实际行为**: 实际发生了什么
-- **环境信息**: OS、Python版本、pcl-rustic版本
+- **环境信息**: OS、Python 版本、pcl-rustic 版本
 - **代码示例**: 最小可复现示例
 
-**Bug报告模板**:
+**Bug 报告模板**:
 
 ```markdown
 **描述**
-简短描述bug
+简短描述 bug
 
 **复现步骤**
 1. ...
@@ -45,14 +45,14 @@
 - pcl-rustic: 0.1.0
 
 **代码示例**
-\```python
+```python
 # 最小可复现示例
-\```
+```
 ```
 
 ### 提议新功能
 
-在[GitHub Discussions](https://github.com/YOUR_USERNAME/pcl-rustic/discussions)中讨论新功能：
+在 [GitHub Discussions](https://github.com/YOUR_USERNAME/pcl-rustic/discussions) 中讨论新功能：
 
 - 描述功能的用途
 - 解释为什么需要这个功能
@@ -61,11 +61,11 @@
 
 ### 贡献代码
 
-1. **Fork仓库**
+1. **Fork 仓库**
 
-   点击GitHub页面右上角的"Fork"按钮
+   点击 GitHub 页面右上角的 "Fork" 按钮
 
-2. **克隆你的fork**
+2. **克隆你的 fork**
 
    ```bash
    git clone https://github.com/YOUR_USERNAME/pcl-rustic.git
@@ -107,9 +107,9 @@
    git commit -m "feat: add amazing feature"
    ```
 
-   提交消息应遵循[Conventional Commits](https://www.conventionalcommits.org/)规范：
+   提交消息应遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
    - `feat:` 新功能
-   - `fix:` Bug修复
+   - `fix:` Bug 修复
    - `docs:` 文档更新
    - `style:` 代码格式（不影响功能）
    - `refactor:` 重构
@@ -117,57 +117,79 @@
    - `test:` 测试相关
    - `chore:` 构建/工具相关
 
-8. **推送到GitHub**
+8. **推送到 GitHub**
 
    ```bash
    git push origin feature/amazing-feature
    ```
 
-9. **创建Pull Request**
+9. **创建 Pull Request**
 
-   在GitHub上创建PR，描述清楚：
+   在 GitHub 上创建 PR，描述清楚：
    - 解决了什么问题
    - 如何解决的
-   - 相关Issue编号
+   - 相关 Issue 编号
    - 测试情况
+
+## 架构概览
+
+```
+src/
+├── lib.rs              # PyO3 Python 绑定入口
+├── traits/             # Trait 抽象层
+│   ├── point_cloud.rs  # PointCloudCore / PointCloudProperties
+│   ├── io.rs           # I/O 接口
+│   ├── downsample.rs   # DownsampleStrategy / VoxelDownsample
+│   └── transform.rs    # CoordinateTransform
+├── point_cloud/        # 点云核心实现
+│   ├── core.rs         # HighPerformancePointCloud 结构体
+│   ├── voxel.rs        # 体素下采样实现 + 采样策略
+│   ├── transform.rs    # 坐标变换实现
+│   └── attributes.rs   # 属性读写辅助
+├── io/                 # 多格式 I/O
+│   ├── las_laz.rs      # LAS/LAZ 格式
+│   ├── parquet.rs      # Parquet 格式
+│   ├── csv.rs          # CSV 格式
+│   └── table.rs        # 表格列名解析
+├── interop/            # Python 互通
+│   └── numpy.rs        # NumPy 数组转换
+└── utils/              # 工具模块
+    ├── error.rs        # 错误处理（PointCloudError）
+    ├── tensor.rs       # Burn 张量工具
+    └── reflect.rs      # 反射/分组工具
+```
 
 ## 代码规范
 
-### Rust代码
+### Rust 代码
 
-- 遵循Rust标准风格（`cargo fmt`）
-- 通过所有clippy检查（`cargo clippy`）
+- 遵循 Rust 标准风格（`cargo fmt`）
+- 通过所有 clippy 检查（`cargo clippy`）
 - 添加文档注释（`///`）
-- 为公共API编写测试
+- 为公共 API 编写测试
 
 **示例**:
 
 ```rust
-/// 从numpy XYZ数组创建点云
+/// 从 numpy XYZ 数组创建点云
 ///
 /// # Arguments
-///
-/// * `xyz` - 形状为[N, 3]的2D numpy数组（dtype=float32）
+/// * `xyz` - 形状为 [N, 3] 的 2D numpy 数组
 ///
 /// # Returns
-///
-/// `PyResult<Self>` - 成功返回点云对象，失败返回错误
-///
-/// # Errors
-///
-/// 当输入不是float32的2D数组时返回错误
+/// `PyResult<Self>` - 成功返回点云对象
 #[staticmethod]
 fn from_xyz(xyz: &Bound<'_, PyAny>) -> PyResult<Self> {
     // ...
 }
 ```
 
-### Python代码
+### Python 代码
 
-- 遵循Ruff风格（`ruff format`）
-- 通过Ruff检查（`ruff check`）
+- 遵循 Ruff 风格（`ruff format`）
+- 通过 Ruff 检查（`ruff check`）
 - 使用类型注解
-- 编写Google风格的docstring
+- 编写 Google 风格的 docstring
 
 **示例**:
 
@@ -183,12 +205,7 @@ def process_point_cloud(pc: PointCloud, voxel_size: float) -> PointCloud:
         下采样后的点云
 
     Raises:
-        ValueError: 当voxel_size <= 0时
-
-    Examples:
-        ```python
-        pc_down = process_point_cloud(pc, 0.15)
-        ```
+        ValueError: 当 voxel_size <= 0 时
     """
     if voxel_size <= 0:
         raise ValueError("voxel_size must be positive")
@@ -199,48 +216,18 @@ def process_point_cloud(pc: PointCloud, voxel_size: float) -> PointCloud:
 
 - 为新功能添加测试
 - 测试覆盖主要代码路径
-- 使用pytest编写Python测试
-- 使用`#[cfg(test)]`编写Rust测试
-
-**Python测试示例**:
-
-```python
-def test_voxel_downsample():
-    """测试体素下采样功能"""
-    xyz = np.random.randn(10000, 3).astype(np.float32)
-    pc = PointCloud.from_xyz(xyz)
-
-    pc_down = pc.voxel_downsample(0.15)
-
-    assert pc_down.point_count() < pc.point_count()
-    assert pc_down.point_count() > 0
-```
-
-**Rust测试示例**:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tensor_creation() {
-        let data = vec![1.0, 2.0, 3.0];
-        let tensor = tensor1_from_slice(&data);
-        assert_eq!(tensor.dims(), [3]);
-    }
-}
-```
+- 使用 pytest 编写 Python 测试
+- 使用 `#[cfg(test)]` 编写 Rust 测试
 
 ## 文档
 
 ### 更新文档
 
-当您添加新功能或修改API时，请更新文档：
+当您添加新功能或修改 API 时，请更新文档：
 
-1. **API文档**: 在代码中添加docstring
-2. **使用指南**: 在`docs/`中添加markdown文件
-3. **示例**: 在`docs/getting-started/examples.md`中添加示例
+1. **API 文档**: 在 `docs/api/` 中更新对应的 markdown 文件
+2. **使用指南**: 在 `docs/getting-started/` 中更新
+3. **示例**: 在 `docs/getting-started/examples.md` 中添加示例
 
 ### 本地预览文档
 
@@ -250,27 +237,27 @@ just docs-serve
 
 访问 http://127.0.0.1:8000 查看效果。
 
-## Pull Request流程
+## Pull Request 流程
 
-1. **PR标题**: 使用清晰的标题
+1. **PR 标题**: 使用清晰的标题
 2. **描述**: 详细说明更改内容
-3. **关联Issue**: 使用`Fixes #123`链接相关Issue
+3. **关联 Issue**: 使用 `Fixes #123` 链接相关 Issue
 4. **检查列表**: 确保所有检查项都完成
 
-**PR模板**:
+**PR 模板**:
 
 ```markdown
 ## 更改内容
 
-简要描述此PR的更改
+简要描述此 PR 的更改
 
-## 相关Issue
+## 相关 Issue
 
 Fixes #123
 
 ## 类型
 
-- [ ] Bug修复
+- [ ] Bug 修复
 - [ ] 新功能
 - [ ] 性能改进
 - [ ] 文档更新
@@ -285,18 +272,17 @@ Fixes #123
 ## 检查列表
 
 - [ ] 代码符合项目规范
-- [ ] 通过`just fmt`格式化
-- [ ] 通过`just lint`检查
+- [ ] 通过 `just fmt` 格式化
+- [ ] 通过 `just lint` 检查
 - [ ] 添加/更新了文档
-- [ ] 更新了CHANGELOG.md（如适用）
 ```
 
-## Review流程
+## Review 流程
 
-1. **自动检查**: CI会自动运行测试和检查
-2. **代码Review**: 维护者会Review您的代码
+1. **自动检查**: CI 会自动运行测试和检查
+2. **代码 Review**: 维护者会 Review 您的代码
 3. **修改**: 根据反馈进行修改
-4. **合并**: Review通过后会合并到main分支
+4. **合并**: Review 通过后会合并到 main 分支
 
 ## 开发技巧
 
@@ -313,16 +299,8 @@ cargo watch -x 'run --example my_example'
 # 启用详细日志
 RUST_LOG=debug just test
 
-# 使用Python调试器
+# 使用 Python 调试器
 python -m pdb tests/test_xxx.py
-```
-
-### 性能分析
-
-```bash
-# 使用cargo flamegraph
-cargo install flamegraph
-cargo flamegraph --example benchmark
 ```
 
 ## 获得帮助
@@ -330,17 +308,13 @@ cargo flamegraph --example benchmark
 如果您遇到问题或有疑问：
 
 1. 查看[文档](https://YOUR_USERNAME.github.io/pcl-rustic)
-2. 搜索[现有Issues](https://github.com/YOUR_USERNAME/pcl-rustic/issues)
+2. 搜索[现有 Issues](https://github.com/YOUR_USERNAME/pcl-rustic/issues)
 3. 在[Discussions](https://github.com/YOUR_USERNAME/pcl-rustic/discussions)中提问
 4. 联系维护者：liuzhen19@xiaomi.com
-
-## 致谢
-
-感谢所有贡献者的努力！您的贡献让pcl-rustic变得更好。
 
 ## 相关资源
 
 - [开发环境设置](setup.md)
-- [API文档](../api/overview.md)
+- [API 文档](../api/overview.md)
 - [Rust Book](https://doc.rust-lang.org/book/)
-- [PyO3指南](https://pyo3.rs/)
+- [PyO3 指南](https://pyo3.rs/)

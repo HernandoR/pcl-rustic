@@ -4,7 +4,7 @@
 
 ## 系统要求
 
-- **Python**: 3.9 或更高版本
+- **Python**: 3.10 或更高版本
 - **Rust**: 1.70+
 - **Just**: 命令运行器（可选但推荐）
 - **操作系统**: Linux, macOS, Windows
@@ -59,8 +59,8 @@ just install
 ```
 
 这将自动：
-- 安装所有Python依赖（dev + docs）
-- 设置pre-commit hooks
+- 安装所有 Python 依赖（dev + docs）
+- 设置 pre-commit hooks
 
 或手动安装：
 
@@ -68,7 +68,7 @@ just install
 # 创建虚拟环境并安装依赖
 uv sync --all-groups
 
-# 安装pre-commit hooks
+# 安装 pre-commit hooks
 pre-commit install
 ```
 
@@ -110,7 +110,7 @@ just test-slow
 # 基准测试
 just benchmark
 
-# Rust测试
+# Rust 测试
 just test-rust
 ```
 
@@ -136,7 +136,7 @@ just lint
 - `cargo clippy` (Rust)
 - `ruff check` (Python)
 
-### Pre-commit检查
+### Pre-commit 检查
 
 ```bash
 just pre-commit
@@ -175,7 +175,7 @@ git checkout -b feature/my-feature
 just dev
 just test
 
-# 4. 格式化和lint
+# 4. 格式化和 lint
 just fmt
 just lint
 
@@ -187,10 +187,10 @@ git commit -m "Add my feature"
 git push origin feature/my-feature
 ```
 
-### 修复Bug
+### 修复 Bug
 
 ```bash
-# 1. 创建bug分支
+# 1. 创建 bug 分支
 git checkout -b fix/bug-description
 
 # 2. 修复代码
@@ -206,7 +206,7 @@ git commit -am "Fix bug: description"
 git push origin fix/bug-description
 ```
 
-## IDE设置
+## IDE 设置
 
 ### VS Code
 
@@ -252,7 +252,7 @@ git push origin fix/bug-description
 
 **解决**:
 ```bash
-# 更新Rust工具链
+# 更新 Rust 工具链
 rustup update stable
 
 # 清理并重新构建
@@ -270,13 +270,13 @@ just build
 just dev
 ```
 
-### Pre-commit失败
+### Pre-commit 失败
 
-**问题**: Pre-commit hooks失败
+**问题**: Pre-commit hooks 失败
 
 **解决**:
 ```bash
-# 运行格式化和lint
+# 运行格式化和 lint
 just fmt
 just lint
 
@@ -287,4 +287,4 @@ git commit
 ## 下一步
 
 - [贡献指南](contributing.md) - 了解如何贡献代码
-- [API文档](../api/overview.md) - 了解API设计
+- [API 文档](../api/overview.md) - 了解 API 设计

@@ -36,7 +36,6 @@ print(f"创建了球形点云: {pc.point_count()} 个点")
 ```python
 from pcl_rustic import DownsampleStrategy
 
-# 原始点云
 print(f"原始点数: {pc.point_count():,}")
 
 # 逐级下采样
@@ -73,7 +72,7 @@ for laz_file in input_dir.glob("*.laz"):
     # 下采样
     pc_down = pc.voxel_downsample(
         voxel_size=0.1,
-        strategy=DownsampleStrategy.INTENSITY_CENTROID
+        strategy=DownsampleStrategy.CENTROID
     )
 
     # 保存
@@ -89,11 +88,9 @@ for laz_file in input_dir.glob("*.laz"):
 ```python
 def merge_point_clouds(point_clouds: list[PointCloud]) -> PointCloud:
     """合并多个点云"""
-    # 收集所有坐标
     all_xyz = [pc.get_xyz() for pc in point_clouds]
     merged_xyz = np.vstack(all_xyz)
 
-    # 创建合并后的点云
     merged_pc = PointCloud.from_xyz(merged_xyz)
 
     # 如果所有点云都有强度，合并强度
@@ -117,19 +114,15 @@ print(f"合并后点数: {merged.point_count():,}")
 ```python
 def align_point_clouds(source: PointCloud, target: PointCloud) -> PointCloud:
     """简单的点云对齐（平移到相同中心）"""
-    # 计算中心
     source_xyz = source.get_xyz()
     target_xyz = target.get_xyz()
 
     source_center = source_xyz.mean(axis=0)
     target_center = target_xyz.mean(axis=0)
 
-    # 计算平移向量
     translation = target_center - source_center
 
-    # 应用平移
     aligned = source.rigid_transform(np.eye(3, dtype=np.float32), translation)
-
     return aligned
 
 # 使用示例
@@ -157,7 +150,6 @@ def transform_coordinate_system(
         return pc.rigid_transform(rotation, np.zeros(3, dtype=np.float32))
 
     elif from_system == "enu" and to_system == "xyz":
-        # ENU → XYZ
         rotation = np.array([
             [0, 1, 0],
             [1, 0, 0],
@@ -195,10 +187,10 @@ def analyze_point_cloud(pc: PointCloud) -> dict:
         stats["强度范围"] = (intensity.min(), intensity.max())
         stats["平均强度"] = intensity.mean()
 
-    # 计算密度
     volume = np.prod(stats["最大边界"] - stats["最小边界"])
     stats["体积"] = volume
-    stats["密度 (点/m³)"] = stats["点数"] / volume
+    if volume > 0:
+        stats["密度 (点/m³)"] = stats["点数"] / volume
 
     return stats
 
@@ -290,21 +282,24 @@ def crop_point_cloud(
     """裁剪点云到指定边界框"""
     xyz = pc.get_xyz()
 
-    # 创建掩码
     mask = np.all((xyz >= min_bound) & (xyz <= max_bound), axis=1)
 
-    # 裁剪坐标
     xyz_cropped = xyz[mask]
     pc_cropped = PointCloud.from_xyz(xyz_cropped)
 
-    # 裁剪属性
+    # 裁剪强度
     if pc.has_intensity():
         intensity = pc.get_intensity()[mask]
         pc_cropped.set_intensity(intensity)
 
+    # 裁剪 RGB
     if pc.has_rgb():
-        r, g, b = pc.rgb()
-        pc_cropped.set_rgb(r[mask], g[mask], b[mask])
+        r, g, b = pc.get_rgb()
+        pc_cropped.set_rgb(
+            r[mask].astype(np.float32),
+            g[mask].astype(np.float32),
+            b[mask].astype(np.float32),
+        )
 
     return pc_cropped
 

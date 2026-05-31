@@ -14,17 +14,17 @@
 
     基于 Burn 张量框架，支持 CPU/GPU 加速，10M 点云体素下采样仅需 ~7 秒
 
--   :material-link-variant:{ .lg .middle } __零拷贝互通__
+-   :material-link-variant:{ .lg .middle } __NumPy 零拷贝互通__
 
     ---
 
-    与 NumPy 数组无缝转换，支持多种 dtype，最小化数据拷贝
+    与 NumPy 数组无缝转换，支持 float32/float64/int32/int64 多种 dtype
 
 -   :material-file-multiple:{ .lg .middle } __多格式 I/O__
 
     ---
 
-    支持 LAZ/LAS/Parquet/CSV 格式读写
+    支持 LAZ/LAS/Parquet/CSV 格式读写，自动格式检测
 
 -   :material-shield-check:{ .lg .middle } __类型安全__
 
