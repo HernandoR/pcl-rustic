@@ -1,15 +1,15 @@
-site_name: PCL Rustic
-site_url: https://YOUR_USERNAME.github.io/pcl-rustic/
-site_description: 高性能 Python 点云处理库 - 基于 Rust + Burn 张量框架
+site_name: pcl-rustic
+site_url: https://arkwhale.github.io/pcl-rustic/
+site_description: High-performance Python point-cloud library built on Rust and Burn
 site_author: liuzhen19
 
-repo_url: https://github.com/YOUR_USERNAME/pcl-rustic
+repo_url: https://github.com/ArkWhale/pcl-rustic
 repo_name: pcl-rustic
 edit_uri: edit/main/docs/
 
 theme:
   name: material
-  language: zh
+  language: en
   palette:
     # Light mode
     - media: "(prefers-color-scheme: light)"
@@ -73,37 +73,21 @@ markdown_extensions:
       permalink: true
 
 plugins:
-  - search:
-      lang:
-        - zh
-        - en
+  - search
   - git-revision-date-localized:
       enable_creation_date: true
       type: date
 
 nav:
-  - 首页: index.md
-  - 快速开始:
-    - 安装: getting-started/installation.md
-    - 基本使用: getting-started/basic-usage.md
-    - 示例: getting-started/examples.md
-  - API 文档:
-    - 概览: api/overview.md
-    - PointCloud: api/pointcloud.md
-    - 下采样: api/downsample.md
-    - 坐标变换: api/transform.md
-    - 文件 I/O: api/io.md
-  - 性能:
-    - 基准测试: performance/benchmarks.md
-    - 优化建议: performance/optimization.md
-  - 开发:
-    - 环境设置: development/setup.md
-    - 贡献指南: development/contributing.md
+  - Home: index.md
+  - Design Records:
+    - RFC Index: rfc/index.md
+    - ADR Index: plans/index.md
 
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/YOUR_USERNAME/pcl-rustic
+      link: https://github.com/ArkWhale/pcl-rustic
   analytics:
     provider: google
     property: !ENV GOOGLE_ANALYTICS_KEY
