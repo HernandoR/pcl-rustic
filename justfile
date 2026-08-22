@@ -7,25 +7,27 @@ install:
     uv sync --all-groups
     pre-commit install
 
-# Build Rust extension in development mode
+# Build the Rust extension in development mode
 dev:
-    maturin develop
+    uv run maturin develop
 
-# Build Rust extension in release mode
+# Build the Rust extension in release mode
 build:
-    maturin develop --release
+    uv run maturin develop --release
 
-test:
-    uv run pytest tests/ -v
+# Run the fast test suite (skips slow and bench tests)
+test: dev
+    uv run pytest -m "not slow and not bench"
 
-test-slow:
-    uv run pytest tests/ -v --run-slow
+# Run every test except benchmarks
+test-all: dev
+    uv run pytest -m "not bench"
 
 # Run benchmark tests
-benchmark:
-    uv run pytest tests/test_benchmark.py::TestBenchmarkSummary::test_full_benchmark_report -v -s
+bench: build
+    uv run pytest -m bench -s
 
-# Run Rust tests
+# Run Rust unit tests
 test-rust:
     cargo test --release
 
@@ -52,10 +54,6 @@ clean:
     find . -type d -name __pycache__ -exec rm -rf {} +
     find . -type f -name "*.pyc" -delete
 
-# Build wheel packages
-wheel:
-    uv build --wheel
-
 # Build source and wheel distributions
 dist:
     uv build
@@ -73,9 +71,9 @@ docs-deploy:
     uv run mkdocs gh-deploy --force
 
 # Release workflow: format, lint, test, build
-release: fmt lint test build wheel
-    @echo "✅ Release checks passed!"
+release: fmt lint test build dist
+    @echo "Release checks passed"
 
 # CI workflow: all checks
 ci: pre-commit test-rust test
-    @echo "✅ CI checks passed!"
+    @echo "CI checks passed"

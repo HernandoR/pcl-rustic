@@ -1,576 +1,63 @@
-"""
-PCL Rustic 性能基准测试
+"""Throughput benchmarks. Run explicitly with `just bench` (`-m bench`).
 
-使用 Gaussian 分布生成大规模点云，测试体素下采样性能
+These print a small plain-text table; they are not correctness tests beyond
+sanity assertions (output size bounds).
 """
 
 from __future__ import annotations
 
-import math
-import sys
 import time
-from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pytest
-from loguru import logger
-
 from pcl_rustic import DownsampleStrategy, PointCloud
 
-# 配置 loguru
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | {message}",
-    level="INFO",
-    colorize=True,
-)
+pytestmark = [pytest.mark.bench, pytest.mark.slow]
+
+POINT_COUNTS = [1_000_000, 10_000_000]
 
 
-def generate_gaussian_point_cloud(
-    num_points: int,
-    x_range: Tuple[float, float] = (-100, 250),
-    y_range: Tuple[float, float] = (-100, 250),
-    z_range: Tuple[float, float] = (-3, 7),
-    seed: Optional[int] = None,
-) -> Dict[str, np.ndarray]:
-    """
-    生成高斯分布的点云数据
-
-    Args:
-        num_points: 点数
-        x_range: X 坐标范围
-        y_range: Y 坐标范围
-        z_range: Z 坐标范围
-        seed: 随机种子
-
-    Returns:
-        包含 xyz, intensity, d1, d2 的字典
-    """
-    if seed is not None:
-        np.random.seed(seed)
-
-    # 随机中心点
-    center_x = np.random.uniform(x_range[0] + 50, x_range[1] - 50)
-    center_y = np.random.uniform(y_range[0] + 50, y_range[1] - 50)
-    center_z = np.random.uniform(z_range[0] + 1, z_range[1] - 1)
-
-    # 随机 sigma（标准差）
-    sigma_xy = np.random.uniform(30, 80)  # XY 平面扩展
-    sigma_z = np.random.uniform(1, 3)  # Z 方向较小
-
-    logger.info(
-        f"生成点云: N={num_points:,}, "
-        f"center=({center_x:.1f}, {center_y:.1f}, {center_z:.1f}), "
-        f"sigma_xy={sigma_xy:.1f}, sigma_z={sigma_z:.1f}"
-    )
-
-    # 生成高斯分布坐标
-    x = np.random.normal(center_x, sigma_xy, num_points).astype(np.float32)
-    y = np.random.normal(center_y, sigma_xy, num_points).astype(np.float32)
-    z = np.random.normal(center_z, sigma_z, num_points).astype(np.float32)
-
-    # 裁剪到范围内
-    x = np.clip(x, x_range[0], x_range[1])
-    y = np.clip(y, y_range[0], y_range[1])
-    z = np.clip(z, z_range[0], z_range[1])
-
-    # 合并为 [N, 3] 数组
-    xyz = np.column_stack([x, y, z]).astype(np.float32)
-
-    # 生成 intensity（高斯分布，中心附近更高）
-    dist_from_center = np.sqrt(
-        (x - center_x) ** 2 + (y - center_y) ** 2 + (z - center_z) ** 2
-    )
-    intensity = (1.0 / (1.0 + dist_from_center / sigma_xy) * 255).astype(np.float32)
-
-    # 生成自定义属性 d1, d2（随机高斯分布）
-    d1 = np.random.normal(0, 1, num_points).astype(np.float32)
-    d2 = np.random.normal(0, 1, num_points).astype(np.float32)
-
-    return {
-        "xyz": xyz,
-        "intensity": intensity,
-        "d1": d1,
-        "d2": d2,
-    }
+def _gaussian_xyz(n_points: int, seed: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(seed)
+    return rng.normal(scale=100.0, size=(n_points, 3))
 
 
-def numpy_voxel_unique_count(xyz: np.ndarray, voxel_size: float) -> int:
-    voxel_idx = np.floor(xyz / voxel_size).astype(np.int32)
-    key_view = np.ascontiguousarray(voxel_idx).view(
-        [("x", np.int32), ("y", np.int32), ("z", np.int32)]
-    )
-    return int(np.unique(key_view).shape[0])
+@pytest.mark.parametrize("n_points", POINT_COUNTS)
+def test_voxel_downsample_throughput(n_points: int) -> None:
+    xyz = _gaussian_xyz(n_points)
+    pc = PointCloud.from_xyz(xyz)
 
-
-def numpy_transform_xyz(
-    xyz: np.ndarray,
-    transform_type: str,
-    matrix: Optional[np.ndarray] = None,
-    rotation: Optional[np.ndarray] = None,
-    translation: Optional[np.ndarray] = None,
-) -> np.ndarray:
-    if transform_type == "3x3_rotation":
-        assert matrix is not None
-        return xyz @ matrix.T
-
-    assert rotation is not None and translation is not None
-    return xyz @ rotation.T + translation
-
-
-def build_transform_params(transform_type: str) -> Dict[str, Optional[np.ndarray]]:
-    if transform_type == "3x3_rotation":
-        angle = math.pi / 4
-        matrix = np.array(
-            [
-                [math.cos(angle), -math.sin(angle), 0.0],
-                [math.sin(angle), math.cos(angle), 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            dtype=np.float32,
-        )
-        return {"matrix": matrix, "rotation": None, "translation": None}
-
-    rotation = np.array(
-        [
-            [math.cos(math.pi / 4), -math.sin(math.pi / 4), 0.0],
-            [math.sin(math.pi / 4), math.cos(math.pi / 4), 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=np.float32,
-    )
-    translation = np.array([10.0, 20.0, 5.0], dtype=np.float32)
-    return {"matrix": None, "rotation": rotation, "translation": translation}
-
-
-def sample_indices(num_points: int, sample_size: int = 1024) -> np.ndarray:
-    if num_points <= sample_size:
-        return np.arange(num_points, dtype=np.int64)
-    return np.linspace(0, num_points - 1, num=sample_size, dtype=np.int64)
-
-
-@pytest.fixture
-def benchmark_data(num_points: int):
     t0 = time.perf_counter()
-    data = generate_gaussian_point_cloud(num_points, seed=42)
-    return {"data": data, "gen_time": time.perf_counter() - t0}
+    down = pc.voxel_downsample(0.15, strategy=DownsampleStrategy.NEAREST_TO_CENTROID)
+    elapsed = time.perf_counter() - t0
+
+    throughput = n_points / elapsed if elapsed > 0 else float("inf")
+    print(
+        f"voxel_downsample  n={n_points:>11,}  out={len(down):>11,}  "
+        f"time={elapsed:8.3f}s  throughput={throughput:14,.0f} pts/s"
+    )
+    assert 0 < len(down) <= n_points
 
 
-@pytest.fixture
-def voxel_baseline(benchmark_data, voxel_size: float):
-    data = benchmark_data["data"]
+@pytest.mark.parametrize("n_points", POINT_COUNTS)
+def test_transform_throughput(n_points: int) -> None:
+    xyz = _gaussian_xyz(n_points)
+    pc = PointCloud.from_xyz(xyz)
+    matrix = np.eye(4)
+    matrix[:3, :3] = np.array([[0.8, -0.6, 0.0], [0.6, 0.8, 0.0], [0.0, 0.0, 1.0]])
+    matrix[:3, 3] = [1.0, 2.0, 3.0]
+
     t0 = time.perf_counter()
-    unique_voxels = numpy_voxel_unique_count(data["xyz"], voxel_size)
-    return {"unique_voxels": unique_voxels, "baseline_time": time.perf_counter() - t0}
+    out = pc.transform(matrix)
+    # burn tensor ops are lazy: reading coordinates back forces execution,
+    # so materialization must sit inside the timed region.
+    result = out.xyz
+    elapsed = time.perf_counter() - t0
 
-
-@pytest.fixture
-def transform_params(transform_type: str):
-    return build_transform_params(transform_type)
-
-
-@pytest.fixture
-def transform_baseline(benchmark_data, transform_type: str, transform_params):
-    data = benchmark_data["data"]
-    idx = sample_indices(data["xyz"].shape[0])
-    sample_xyz = data["xyz"][idx]
-    t0 = time.perf_counter()
-    baseline_xyz = numpy_transform_xyz(
-        sample_xyz,
-        transform_type,
-        matrix=transform_params["matrix"],
-        rotation=transform_params["rotation"],
-        translation=transform_params["translation"],
+    throughput = n_points / elapsed if elapsed > 0 else float("inf")
+    print(
+        f"transform         n={n_points:>11,}  time={elapsed:8.3f}s  "
+        f"throughput={throughput:14,.0f} pts/s"
     )
-    return {
-        "xyz": baseline_xyz,
-        "baseline_time": time.perf_counter() - t0,
-        "sample_indices": idx,
-    }
-
-
-@pytest.fixture(scope="module")
-def summary_dataset():
-    point_counts = [10_000_000, 50_000_000]
-    voxel_sizes = [0.06, 0.15, 0.20]
-    transform_types = [
-        ("3x3_rotation", "3x3旋转"),
-        ("rigid", "刚体变换"),
-    ]
-
-    datasets = []
-    for num_points in point_counts:
-        data = generate_gaussian_point_cloud(num_points, seed=42)
-        voxel_baseline = {
-            voxel_size: numpy_voxel_unique_count(data["xyz"], voxel_size)
-            for voxel_size in voxel_sizes
-        }
-
-        idx = sample_indices(num_points)
-        sample_xyz = data["xyz"][idx]
-        transform_baseline = {}
-        for transform_id, _ in transform_types:
-            params = build_transform_params(transform_id)
-            transform_baseline[transform_id] = numpy_transform_xyz(
-                sample_xyz,
-                transform_id,
-                matrix=params["matrix"],
-                rotation=params["rotation"],
-                translation=params["translation"],
-            )
-
-        datasets.append(
-            {
-                "num_points": num_points,
-                "data": data,
-                "voxel_baseline": voxel_baseline,
-                "transform_baseline": transform_baseline,
-                "sample_indices": idx,
-            }
-        )
-
-    return {
-        "point_counts": point_counts,
-        "voxel_sizes": voxel_sizes,
-        "transform_types": transform_types,
-        "datasets": datasets,
-    }
-
-
-class TestBenchmarkVoxelDownsample:
-    """体素下采样性能基准测试"""
-
-    @pytest.mark.parametrize(
-        "num_points",
-        [
-            pytest.param(10_000_000, id="10M"),
-            pytest.param(50_000_000, id="50M", marks=pytest.mark.slow),
-            pytest.param(100_000_000, id="100M", marks=pytest.mark.slow),
-        ],
-    )
-    @pytest.mark.parametrize(
-        "voxel_size",
-        [
-            pytest.param(0.06, id="voxel_0.06"),
-            pytest.param(0.15, id="voxel_0.15"),
-            pytest.param(0.20, id="voxel_0.20"),
-        ],
-    )
-    def test_voxel_downsample_performance(
-        self,
-        num_points: int,
-        voxel_size: float,
-        benchmark_data,
-        voxel_baseline,
-    ):
-        """测试体素下采样性能"""
-        logger.info(f"\n{'=' * 60}")
-        logger.info(f"开始测试: {num_points:,} 点, voxel_size={voxel_size}")
-        logger.info(f"{'=' * 60}")
-
-        # 生成点云数据（fixture 预计算）
-        data = benchmark_data["data"]
-        t_gen = benchmark_data["gen_time"]
-        logger.info(f"数据生成耗时: {t_gen:.2f}s")
-        logger.info(
-            f"Numpy baseline 体素统计耗时: {voxel_baseline['baseline_time']:.2f}s"
-        )
-
-        # 创建点云
-        t0 = time.perf_counter()
-        pc = PointCloud.from_xyz(data["xyz"])
-        pc.set_intensity(data["intensity"])
-        pc.add_attribute("d1", data["d1"])
-        pc.add_attribute("d2", data["d2"])
-        t_create = time.perf_counter() - t0
-        logger.info(f"点云创建耗时: {t_create:.2f}s")
-        logger.info(f"输入点数: {pc.point_count():,}")
-        logger.info(f"内存占用: {pc.memory_usage() / 1024 / 1024:.1f} MB")
-
-        # 体素下采样
-        t0 = time.perf_counter()
-        downsampled = pc.voxel_downsample(voxel_size, DownsampleStrategy.CENTROID)
-        t_downsample = time.perf_counter() - t0
-
-        out_count = downsampled.point_count()
-        reduction_ratio = (1 - out_count / num_points) * 100
-
-        logger.success(
-            f"下采样完成! "
-            f"voxel={voxel_size}, "
-            f"输入={num_points:,}, "
-            f"输出={out_count:,}, "
-            f"减少={reduction_ratio:.1f}%, "
-            f"耗时={t_downsample:.3f}s"
-        )
-
-        # 验证结果（与 numpy baseline 对比）
-        assert downsampled.point_count() > 0
-        assert downsampled.point_count() == voxel_baseline["unique_voxels"]
-        assert downsampled.has_intensity()
-        assert "d1" in downsampled.attribute_names()
-        assert "d2" in downsampled.attribute_names()
-
-
-class TestBenchmarkSummary:
-    """生成完整的性能报告"""
-
-    @pytest.mark.slow
-    def test_full_benchmark_report(self, summary_dataset):
-        """运行完整的性能基准测试并输出报告"""
-        logger.info("\n" + "=" * 70)
-        logger.info("PCL Rustic 体素下采样性能基准测试")
-        logger.info("=" * 70)
-
-        # 测试配置
-        point_counts = summary_dataset["point_counts"]
-        voxel_sizes = summary_dataset["voxel_sizes"]
-
-        results = []
-
-        for dataset in summary_dataset["datasets"]:
-            _num_points = dataset["num_points"]
-            data = dataset["data"]
-            voxel_baseline = dataset["voxel_baseline"]
-
-            # 创建点云
-            pc = PointCloud.from_xyz(data["xyz"])
-            pc.set_intensity(data["intensity"])
-            pc.add_attribute("d1", data["d1"])
-            pc.add_attribute("d2", data["d2"])
-
-            input_count = pc.point_count()
-            memory_mb = pc.memory_usage() / 1024 / 1024
-
-            logger.info(f"\n点云规模: {input_count:,} 点, 内存: {memory_mb:.1f} MB")
-            logger.info("-" * 50)
-
-            for voxel_size in voxel_sizes:
-                # 下采样
-                t0 = time.perf_counter()
-                downsampled = pc.voxel_downsample(
-                    voxel_size, DownsampleStrategy.CENTROID
-                )
-                elapsed = time.perf_counter() - t0
-
-                out_count = downsampled.point_count()
-                reduction = (1 - out_count / input_count) * 100
-                throughput = input_count / elapsed / 1_000_000  # M points/sec
-
-                results.append(
-                    {
-                        "input": input_count,
-                        "voxel_size": voxel_size,
-                        "output": out_count,
-                        "reduction": reduction,
-                        "time": elapsed,
-                        "throughput": throughput,
-                    }
-                )
-
-                assert out_count == voxel_baseline[voxel_size]
-
-                logger.info(
-                    f"  voxel={voxel_size:.2f}: "
-                    f"{input_count:>12,} → {out_count:>10,} "
-                    f"({reduction:5.1f}% 减少) "
-                    f"| {elapsed:6.3f}s "
-                    f"| {throughput:.1f}M pts/s"
-                )
-
-        # 输出汇总表
-        logger.info("\n" + "=" * 70)
-        logger.info("性能汇总")
-        logger.info("=" * 70)
-        logger.info(
-            f"{'输入点数':>12} | {'Voxel':>6} | {'输出点数':>12} | "
-            f"{'减少率':>8} | {'耗时':>8} | {'吞吐量':>10}"
-        )
-        logger.info("-" * 70)
-
-        for r in results:
-            logger.info(
-                f"{r['input']:>12,} | {r['voxel_size']:>6.2f} | {r['output']:>12,} | "
-                f"{r['reduction']:>7.1f}% | {r['time']:>7.3f}s | "
-                f"{r['throughput']:>8.1f}M/s"
-            )
-
-        logger.info("=" * 70)
-
-        # 断言所有测试通过
-        assert len(results) == len(point_counts) * len(voxel_sizes)
-        for r in results:
-            assert r["output"] > 0
-            assert r["reduction"] >= 0
-
-
-class TestBenchmarkTransform:
-    """坐标变换性能基准测试"""
-
-    @pytest.mark.parametrize(
-        "num_points",
-        [
-            pytest.param(10_000_000, id="10M"),
-            pytest.param(50_000_000, id="50M"),
-            pytest.param(100_000_000, id="100M", marks=pytest.mark.slow),
-        ],
-    )
-    @pytest.mark.parametrize(
-        "transform_type",
-        [
-            pytest.param("3x3_rotation", id="3x3_rotation"),
-            pytest.param("rigid", id="rigid_transform"),
-        ],
-    )
-    def test_transform_performance(
-        self,
-        num_points: int,
-        transform_type: str,
-        benchmark_data,
-        transform_params,
-        transform_baseline,
-    ):
-        """测试坐标变换性能"""
-        logger.info(f"\n{'=' * 60}")
-        logger.info(f"开始测试: {num_points:,} 点, {transform_type}")
-        logger.info(f"{'=' * 60}")
-
-        # 生成点云数据（fixture 预计算）
-        data = benchmark_data["data"]
-        t_gen = benchmark_data["gen_time"]
-        logger.info(f"数据生成耗时: {t_gen:.2f}s")
-        logger.info(
-            f"Numpy baseline 变换耗时: {transform_baseline['baseline_time']:.2f}s"
-        )
-
-        # 创建点云
-        t0 = time.perf_counter()
-        pc = PointCloud.from_xyz(data["xyz"])
-        pc.set_intensity(data["intensity"])
-        t_create = time.perf_counter() - t0
-        logger.info(f"点云创建耗时: {t_create:.2f}s")
-        logger.info(f"输入点数: {pc.point_count():,}")
-
-        # 定义变换矩阵（fixture 预计算）
-        if transform_type == "3x3_rotation":
-            matrix = transform_params["matrix"].tolist()
-
-            # 执行变换
-            t0 = time.perf_counter()
-            transformed = pc.transform(matrix)
-            t_transform = time.perf_counter() - t0
-
-        else:  # rigid transform
-            rotation = transform_params["rotation"].tolist()
-            translation = transform_params["translation"].tolist()
-
-            # 执行变换
-            t0 = time.perf_counter()
-            transformed = pc.rigid_transform(rotation, translation)
-            t_transform = time.perf_counter() - t0
-
-        throughput = num_points / t_transform / 1_000_000  # M points/sec
-
-        logger.success(
-            f"变换完成! "
-            f"类型={transform_type}, "
-            f"点数={num_points:,}, "
-            f"耗时={t_transform:.3f}s, "
-            f"吞吐量={throughput:.1f}M pts/s"
-        )
-
-        # 验证结果（与 numpy baseline 对比）
-        assert transformed.point_count() == num_points
-        assert transformed.has_intensity()
-        transformed_xyz = transformed.get_xyz()
-        sample_idx = transform_baseline["sample_indices"]
-        np.testing.assert_allclose(
-            transformed_xyz[sample_idx],
-            transform_baseline["xyz"],
-            rtol=1e-5,
-        )
-
-    @pytest.mark.slow
-    def test_transform_benchmark_report(self, summary_dataset):
-        """运行完整的变换性能基准测试并输出报告"""
-        logger.info("\n" + "=" * 70)
-        logger.info("PCL Rustic 坐标变换性能基准测试")
-        logger.info("=" * 70)
-
-        # 测试配置
-        point_counts = summary_dataset["point_counts"]
-        transform_types = summary_dataset["transform_types"]
-
-        results = []
-
-        for dataset in summary_dataset["datasets"]:
-            num_points = dataset["num_points"]
-            data = dataset["data"]
-            transform_baseline = dataset["transform_baseline"]
-            sample_idx = dataset["sample_indices"]
-            pc = PointCloud.from_xyz(data["xyz"])
-            pc.set_intensity(data["intensity"])
-
-            logger.info(f"\n点云规模: {num_points:,} 点")
-            logger.info("-" * 50)
-
-            for transform_id, transform_name in transform_types:
-                params = build_transform_params(transform_id)
-                if transform_id == "3x3_rotation":
-                    matrix = params["matrix"].tolist()
-                    t0 = time.perf_counter()
-                    transformed = pc.transform(matrix)
-                    elapsed = time.perf_counter() - t0
-                else:
-                    rotation = params["rotation"].tolist()
-                    translation = params["translation"].tolist()
-                    t0 = time.perf_counter()
-                    transformed = pc.rigid_transform(rotation, translation)
-                    elapsed = time.perf_counter() - t0
-
-                throughput = num_points / elapsed / 1_000_000
-
-                results.append(
-                    {
-                        "points": num_points,
-                        "transform": transform_name,
-                        "time": elapsed,
-                        "throughput": throughput,
-                    }
-                )
-
-                transformed_xyz = transformed.get_xyz()
-                np.testing.assert_allclose(
-                    transformed_xyz[sample_idx],
-                    transform_baseline[transform_id],
-                    rtol=1e-5,
-                )
-
-                logger.info(
-                    f"  {transform_name:>12}: "
-                    f"{elapsed:6.3f}s | {throughput:8.1f}M pts/s"
-                )
-
-        # 输出汇总表
-        logger.info("\n" + "=" * 70)
-        logger.info("变换性能汇总")
-        logger.info("=" * 70)
-        logger.info(f"{'点数':>12} | {'变换类型':>12} | {'耗时':>8} | {'吞吐量':>12}")
-        logger.info("-" * 70)
-
-        for r in results:
-            logger.info(
-                f"{r['points']:>12,} | {r['transform']:>12} | "
-                f"{r['time']:>7.3f}s | {r['throughput']:>10.1f}M/s"
-            )
-
-        logger.info("=" * 70)
-
-        # 断言所有测试通过
-        assert len(results) == len(point_counts) * len(transform_types)
-
-
-if __name__ == "__main__":
-    # 直接运行时执行基准测试
-    pytest.main([__file__, "-v", "-s", "-k", "test_full_benchmark_report"])
+    assert len(out) == n_points
+    assert result.shape == (n_points, 3)

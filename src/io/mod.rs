@@ -1,55 +1,50 @@
-/// 多格式IO模块入口
-pub mod las_laz;
-pub mod table;
+//! Extension-based file format dispatch (ADR-0004): `.las`/`.laz`/`.csv`/
+//! `.parquet`, mirroring laspy's `read`/`write` entry points.
 
-use crate::point_cloud::core::HighPerformancePointCloud;
-use crate::utils::error::Result;
+mod csv;
+mod las;
+mod parquet;
+
+use crate::cloud::PointCloud;
+use crate::error::{Error, Result};
+use std::collections::HashMap;
 use std::path::Path;
 
-impl HighPerformancePointCloud {
-    /// 根据扩展名自动加载点云
-    /// 支持: .las/.laz/.csv/.parquet/.pq
-    pub fn load_from_file(path: &str, columns: Option<table::TableColumnNames>) -> Result<Self> {
-        let ext = Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
+/// `dimension name -> file column name` mapping used by CSV/Parquet I/O.
+/// Reads invert the same map (file column name -> dimension name).
+pub type ColumnMap = HashMap<String, String>;
 
-        match ext.as_str() {
-            "las" | "laz" => Self::from_las_laz(path),
-            "csv" => {
-                let cols = columns.unwrap_or_default();
-                Self::from_table_csv(path, b',', cols)
-            }
-            "parquet" | "pq" => {
-                let cols = columns.unwrap_or_default();
-                Self::from_table_parquet(path, cols)
-            }
-            _ => Err(format!("不支持的文件格式: {}", ext).into()),
+fn extension_of(path: &str) -> Result<String> {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .ok_or_else(|| {
+            Error::os(format!(
+                "cannot determine file format from path '{path}' (no extension)"
+            ))
+        })
+}
+
+impl PointCloud {
+    /// Reads a point cloud, dispatching on `path`'s extension.
+    pub fn read_file(path: &str, columns: Option<&ColumnMap>, delimiter: u8) -> Result<Self> {
+        match extension_of(path)?.as_str() {
+            "las" | "laz" => las::read(path),
+            "csv" | "tsv" => csv::read(path, columns, delimiter),
+            "parquet" => parquet::read(path, columns),
+            other => Err(Error::os(format!("unsupported file format '.{other}'"))),
         }
     }
 
-    /// 根据扩展名自动保存点云
-    /// 支持: .las/.laz/.csv/.parquet/.pq
-    pub fn save_to_file(&self, path: &str, columns: Option<table::TableColumnNames>) -> Result<()> {
-        let ext = Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        match ext.as_str() {
-            "las" | "laz" => self.to_las(path, ext == "laz"),
-            "csv" => {
-                let cols = columns.unwrap_or_default();
-                self.to_table_csv(path, b',', cols)
-            }
-            "parquet" | "pq" => {
-                let cols = columns.unwrap_or_default();
-                self.to_table_parquet(path, cols)
-            }
-            _ => Err(format!("不支持的文件格式: {}", ext).into()),
+    /// Writes this point cloud, dispatching on `path`'s extension. `.laz`
+    /// implies compression.
+    pub fn write_file(&self, path: &str, columns: Option<&ColumnMap>, delimiter: u8) -> Result<()> {
+        match extension_of(path)?.as_str() {
+            "las" | "laz" => las::write(self, path),
+            "csv" | "tsv" => csv::write(self, path, columns, delimiter),
+            "parquet" => parquet::write(self, path, columns),
+            other => Err(Error::os(format!("unsupported file format '.{other}'"))),
         }
     }
 }

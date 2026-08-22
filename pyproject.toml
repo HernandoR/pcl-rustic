@@ -1,28 +1,29 @@
 [project]
 name = "pcl-rustic"
 version = "0.1.0"
-description = "高性能Python点云运算库 - 基于Rust burn张量的批量运算"
-readme = "ai_doc/README.md"
+description = "High-performance Python point cloud library backed by Rust and burn tensors"
+readme = "README.md"
 authors = [
     { name = "liuzhen19", email = "liuzhen19@xiaomi.com" }
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "loguru>=0.7.3",
-    "numpy>=2.0.0",
-    "pytest-cov>=7.0.0",
+    "numpy>=2.0",
 ]
 
-
-
 [tool.maturin]
+python-source = "python"
 module-name = "pcl_rustic._core"
-python-packages = ["pcl_rustic"]
-python-source = "src"
 features = ["pyo3/extension-module"]
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/**/*.rs" },
+    { file = "python/**/*.py" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -30,10 +31,19 @@ build-backend = "maturin"
 
 [dependency-groups]
 dev = [
-    "loguru>=0.7.3",
     "pytest>=8.4.2",
+    "maturin>=1.9,<2.0",
+    "ruff>=0.12",
 ]
 docs = [
     "mkdocs-material>=9.5.0",
     "mkdocs-git-revision-date-localized-plugin>=1.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "slow: marks tests that take a long time to run (large point clouds)",
+    "bench: marks throughput/performance benchmark tests",
 ]

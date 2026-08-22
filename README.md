@@ -1,308 +1,196 @@
-# PCL Rustic — 高性能 Python 点云运算库
+# pcl-rustic
 
-[![CI](https://github.com/YOUR_USERNAME/pcl-rustic/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/pcl-rustic/actions/workflows/test.yml)
+[![CI](https://github.com/ArkWhale/pcl-rustic/workflows/CI/badge.svg)](https://github.com/ArkWhale/pcl-rustic/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/pcl-rustic?label=PyPI)](https://pypi.org/project/pcl-rustic/)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://www.python.org/)
-[![Rust](https://img.shields.io/badge/Rust-1.70+-orange)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.89+-orange)](https://www.rust-lang.org/)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**PCL Rustic** 是一个基于 Rust + PyO3 的高性能 Python 点云处理库，使用 [Burn](https://github.com/tracel-ai/burn) 张量框架实现批量运算，支持 CPU/GPU 加速。
+**pcl-rustic** is a point cloud library built in Rust with a PyO3 binding,
+using [burn](https://github.com/tracel-ai/burn) tensors for batch compute.
+It targets one goal: let a [laspy](https://laspy.readthedocs.io/) user move
+to pcl-rustic without changing a single dtype.
 
-## ✨ 核心特性
+## Aims
 
-- 🚀 **高性能批量运算** — 基于 Burn 张量框架，支持 CPU/GPU 加速
-- 🔗 **NumPy 零拷贝互通** — 支持 float32/float64/int32/int64 多种 dtype
-- 📦 **多格式 I/O** — LAZ/LAS/Parquet/CSV 格式读写，自动格式检测
-- 🎯 **类型安全** — 完整的类型注解和 `.pyi` 存根文件
-- 🧩 **模块化设计** — 清晰的 Trait 抽象，易于扩展
-- 📊 **性能优异** — 10M 点云体素下采样 ~7s，吞吐量 1.3–1.5M pts/s
+- **The laspy dtype promise.** Every standard point dimension (`x`,
+  `intensity`, `classification`, `gps_time`, `red`, ...) has a pinned numpy
+  dtype identical to laspy's, so LAS/LAZ files, CSV exports, and Parquet
+  tables all round-trip losslessly. See the [dtype contract](#dtype-contract)
+  below and `docs/plans/adr-0002-las-aligned-dimension-dtype-contract-2026-08-22.md`.
+- **One backend, any device.** burn 0.21's unified dispatch backend
+  ([tracel-ai/burn#4415](https://github.com/tracel-ai/burn/issues/4415))
+  lets a single compiled wheel run on CPU or GPU, picking the backend at
+  runtime via a device string instead of a compile-time feature.
+- **Torch interop.** Every array-accepting API also accepts a torch tensor
+  (zero-copy on CPU via DLPack); point clouds export back to torch with
+  `to_torch()`. An opt-in `torch` Cargo feature runs burn ops natively on
+  libtorch, including its CUDA allocator.
+- **Multi-format I/O.** One `PointCloud.read` / `pc.write` pair dispatches
+  on file extension across LAS, LAZ, CSV, and Parquet, preserving column
+  dtypes end-to-end.
 
-## 📦 安装
-
-### 使用 uv (推荐)
+## Install
 
 ```bash
-uv pip install pcl-rustic
-```
-
-### 使用 pip
-
-```bash
+uv add pcl-rustic
+# or
 pip install pcl-rustic
 ```
 
-### 从源码构建
+### From source
 
-需要 Python 3.10+ 和 Rust 1.70+
+Requires Python 3.10+ and Rust 1.89+ (burn 0.21 uses edition 2024):
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/pcl-rustic.git
+git clone https://github.com/ArkWhale/pcl-rustic.git
 cd pcl-rustic
-uv build
+just install
+just dev
 ```
 
-### 支持的 Python 版本
+## Quickstart
 
-- Python 3.10 / 3.11 / 3.12 / 3.13
-- Python 3.14t (free-threaded)
-
-## 🚀 快速开始
+### NumPy
 
 ```python
 import numpy as np
 from pcl_rustic import PointCloud, DownsampleStrategy
 
-# 创建点云（推荐 float32）
-xyz = np.random.randn(10000, 3).astype(np.float32) * 100
-pc = PointCloud.from_xyz(xyz)
+xyz = np.random.default_rng(0).normal(size=(100_000, 3)) * 10.0
+pc = PointCloud.from_xyz(xyz)  # any real dtype in, f8 out
 
-# 添加属性
-intensity = np.random.rand(10000).astype(np.float32) * 255
-pc.set_intensity(intensity)
+pc.intensity = np.random.default_rng(1).integers(0, 65535, size=len(pc))
+pc.classification = np.zeros(len(pc), dtype=np.uint8)
 
-# 体素下采样
-pc_down = pc.voxel_downsample(
-    voxel_size=0.15,
-    strategy=DownsampleStrategy.CENTROID
-)
-
-print(f"原始: {pc.point_count():,} 点")
-print(f"下采样: {pc_down.point_count():,} 点")
+pc_down = pc.voxel_downsample(0.15, strategy=DownsampleStrategy.NEAREST_TO_CENTROID)
+print(f"{len(pc):,} -> {len(pc_down):,} points")
 ```
 
-## 📖 API 文档
-
-### 创建点云
+### laspy-style dimension access
 
 ```python
-# 从 NumPy 数组创建（支持 float32/float64/int32/int64）
-xyz = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
-pc = PointCloud.from_xyz(xyz)
+pc = PointCloud.read("scan.laz")
 
-# 从文件读取
-pc = PointCloud.from_las("input.las")
-pc = PointCloud.from_csv("input.csv", delimiter=44)
-pc = PointCloud.from_parquet("input.parquet")
+# dict-style
+pc["classification"]
+pc["classification"] = new_classes
+
+# attribute sugar for standard and already-declared extra dimensions
+pc.classification
+pc.gps_time
+
+# extra dimensions must be declared once before use
+pc.add_extra_dim("confidence", "f4")
+pc.confidence = confidence_scores
 ```
 
-### 属性管理
+### Torch
 
 ```python
-# 设置属性（dtype=float32）
-intensity = np.array([100.0, 200.0], dtype=np.float32)
-pc.set_intensity(intensity)
+import torch
+from pcl_rustic import PointCloud
 
-# 获取属性
-xyz_arr = pc.get_xyz()          # shape: (N, 3), dtype: float32
-intensity_arr = pc.get_intensity()  # shape: (N,), dtype: float32
+xyz = torch.rand((10_000, 3), dtype=torch.float64) * 100.0
+pc = PointCloud.from_xyz(xyz)          # zero-copy ingest via DLPack (CPU)
+pc["intensity"] = torch.randint(0, 65535, (len(pc),))
 
-# RGB（返回 uint8 数组）
-if pc.has_rgb():
-    r, g, b = pc.get_rgb()      # 各 shape: (N,), dtype: uint8
-
-# 自定义属性
-pc.add_attribute("elevation", data)
-pc.set_attribute("classification", data)
-pc.remove_attribute("elevation")
+intensity_tensor = pc.to_torch("intensity")
+all_tensors = pc.to_torch()            # dict[str, torch.Tensor]
 ```
 
-### 坐标变换
+torch is an optional import: pcl-rustic works with plain numpy if torch is
+not installed, and only `to_torch()` / torch-tensor arguments need it.
+
+## Device selection
 
 ```python
-# 刚体变换（3×3 旋转 + 3 维平移）
-rotation = np.eye(3, dtype=np.float32)
-translation = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-pc_t = pc.rigid_transform(rotation, translation)
+from pcl_rustic import available_devices, default_device
 
-# 矩阵变换（支持 3×3 和 4×4）
-matrix = np.eye(4, dtype=np.float32)
-pc_t = pc.transform(matrix)
+available_devices()  # e.g. ["cpu", "vulkan"], or add "cuda"/"torch" if built with those features
+default_device()     # picks a GPU variant if one initializes, else "cpu"
+
+pc.device                  # -> str
+pc_gpu = pc.to_device("vulkan")
 ```
 
-### 下采样
+Device names map 1:1 to the backends the wheel was compiled with (`cpu`,
+`vulkan` on by default; `cuda` and `torch` are opt-in Cargo features).
 
-```python
-# 2 种采样策略
-pc_down = pc.voxel_downsample(0.06, DownsampleStrategy.CENTROID)   # 质心
-pc_down = pc.voxel_downsample(0.06, DownsampleStrategy.RANDOM)     # 随机
-```
+## Dtype contract
 
-### 文件 I/O
+`PointCloud` is a set of named, equal-length dimensions. Standard dimension
+names carry pinned numpy dtypes, identical to laspy:
 
-```python
-# LAZ/LAS
-pc.to_las("output.las", compress=False)
-pc.to_las("output.laz", compress=True)
+| Dimension | numpy dtype | Notes |
+|---|---|---|
+| `x`, `y`, `z` | `f8` | scaled coordinates |
+| `intensity` | `u2` | |
+| `return_number` | `u1` | unpacked from the LAS bit field |
+| `number_of_returns` | `u1` | unpacked |
+| `synthetic`, `key_point`, `withheld`, `overlap` | `bool` | unpacked flags |
+| `scan_direction_flag`, `edge_of_flight_line` | `bool` | unpacked |
+| `scanner_channel` | `u1` | LAS formats 6-10 |
+| `classification` | `u1` | |
+| `user_data` | `u1` | |
+| `scan_angle` | `i2` | LAS 0-5 `scan_angle_rank` (i1) widens losslessly |
+| `point_source_id` | `u2` | |
+| `gps_time` | `f8` | |
+| `red`, `green`, `blue` | `u2` | 16-bit color, per LAS -- **not** u8 |
+| `nir` | `u2` | |
 
-# CSV（delimiter 为 ASCII 码: 44 = 逗号）
-pc.to_csv("output.csv", delimiter=44)
+Getters always return this pinned dtype. Setters accept the exact dtype
+as-is, or coerce a same-kind array (int widening/narrowing, float
+widening/narrowing) with range validation -- `OverflowError` on
+out-of-range values, `TypeError` on a kind-incompatible cast (e.g. a float
+array into `classification`). `add_extra_dim(name, dtype)` accepts any of
+`u1 u2 u4 u8 i1 i2 i4 i8 f4 f8` and round-trips exactly through Parquet.
+LAS write currently skips extra dimensions -- the `las` crate exposes no
+typed ExtraBytes API (see ADR-0004); use Parquet as the lossless carrier.
 
-# Parquet
-pc.to_parquet("output.parquet")
+Full rationale: `docs/plans/adr-0002-las-aligned-dimension-dtype-contract-2026-08-22.md`.
 
-# 自动格式检测
-pc = PointCloud.load_from_file("data.laz")
-pc.save_to_file("output.parquet")
-```
+## Development
 
-## 🏗️ 架构设计
-
-```
-src/
-├── lib.rs              # PyO3 Python 绑定入口
-├── traits/             # Trait 抽象层
-│   ├── point_cloud.rs  # PointCloudCore / PointCloudProperties
-│   ├── downsample.rs   # DownsampleStrategy / VoxelDownsample
-│   ├── transform.rs    # CoordinateTransform
-│   └── io.rs           # I/O 接口
-├── point_cloud/        # 点云核心实现
-│   ├── core.rs         # HighPerformancePointCloud 结构体
-│   ├── voxel.rs        # 体素下采样 + 采样策略
-│   ├── transform.rs    # 坐标变换实现
-│   └── attributes.rs   # 属性读写辅助
-├── io/                 # 多格式 I/O
-│   ├── las_laz.rs      # LAS/LAZ 格式
-│   ├── csv.rs          # CSV 格式
-│   ├── parquet.rs      # Parquet 格式
-│   └── table.rs        # 表格列名解析
-├── interop/            # Python 互通
-│   └── numpy.rs        # NumPy 数组转换
-└── utils/              # 工具模块
-    ├── error.rs        # PointCloudError 错误处理
-    ├── tensor.rs       # Burn 张量工具
-    └── reflect.rs      # 反射/分组工具
-```
-
-**设计原则**：
-- ✅ NumPy 数组作为 Python 接口（零拷贝读取）
-- ✅ `from_xyz` 支持 float32/float64/int32/int64
-- ✅ 属性方法（set_intensity/set_rgb/add_attribute）要求 float32
-- ✅ `get_rgb()` 返回 uint8 数组
-- ✅ 所有数据批量操作，不支持单点访问
-
-## 🔧 开发指南
-
-使用 [just](https://github.com/casey/just) 命令运行器简化开发工作流。
-
-### 环境设置
+This project uses [just](https://github.com/casey/just) as its command
+runner and [uv](https://github.com/astral-sh/uv) for Python packaging.
 
 ```bash
-just install    # 安装依赖 + pre-commit hooks
+just install     # uv sync --all-groups + pre-commit hooks
+just dev         # maturin develop (debug build)
+just build       # maturin develop --release
+just test        # fast suite: pytest -m "not slow and not bench"
+just test-all    # everything except benchmarks
+just bench       # throughput benchmarks: pytest -m bench -s
+just test-rust   # cargo test --release
+just fmt         # cargo fmt + ruff format
+just lint        # cargo clippy + ruff check
+just ci          # pre-commit + rust tests + fast suite
 ```
 
-### 常用命令
+Reference throughput on a 96-thread AMD EPYC 7R13 host (CPU `flex` device,
+release build, `just bench`):
 
-```bash
-just dev         # 开发模式构建
-just build       # 生产模式构建
-just test        # 运行测试
-just test-fast   # 快速测试（跳过慢速）
-just benchmark   # 性能基准测试
-just fmt         # 格式化（cargo fmt + ruff format）
-just lint        # Linting（cargo clippy + ruff check）
-just pre-commit  # 运行所有 pre-commit hooks
-just docs-serve  # 本地预览文档
-just release     # 完整发布流程
-just ci          # 模拟 CI 流程
-just clean       # 清理构建产物
-```
+| Operation | Points | Time | Throughput |
+|---|---|---|---|
+| `voxel_downsample` (0.15) | 1M | 1.2 s | 0.83M pts/s |
+| `voxel_downsample` (0.15) | 10M | 12.2 s | 0.82M pts/s |
+| `transform` (4x4, incl. readback) | 1M | 0.07 s | 15.0M pts/s |
+| `transform` (4x4, incl. readback) | 10M | 0.51 s | 19.6M pts/s |
 
-### 代码质量
-- **Rust**: rustfmt + clippy
-- **Python**: ruff (format + check)
-- **Pre-commit**: 自动运行检查
+Numbers vary by host; run `just bench` locally.
 
-### 性能基准
+## Documentation layout
 
-| 输入 | Voxel | 输出 | 减少率 | 耗时 | 吞吐量 |
-|------|-------|------|-------|------|--------|
-| 10M | 0.06 | 8.8M | 11.6% | 7.70s | 1.3M/s |
-| 10M | 0.15 | 7.9M | 21.3% | 7.13s | 1.4M/s |
-| 10M | 0.20 | 7.0M | 29.5% | 6.45s | 1.5M/s |
-| 50M | 0.06 | 41.7M | 16.5% | 47.1s | 1.1M/s |
-| 50M | 0.15 | 29.4M | 41.2% | 37.9s | 1.3M/s |
-| 50M | 0.20 | 21.0M | 58.0% | 35.5s | 1.4M/s |
+- `docs/rfc/` -- append-only RFC discussion logs (design exploration, kept
+  even after resolution).
+- `docs/plans/` -- Architecture Decision Records (ADRs), the current,
+  atomically maintained source of truth for accepted decisions.
 
-## 📊 数据格式要求
+Start with `docs/rfc/rfc-0001-full-structure-redesign-2026-08-22.md` for the
+rationale behind this redesign, and `docs/plans/index.md` for the full ADR
+index.
 
-### from_xyz() — 支持多种 dtype
+## License
 
-```python
-# ✅ 推荐: float32
-xyz = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
-pc = PointCloud.from_xyz(xyz)
-
-# ✅ 支持: float64, int32, int64（自动转换）
-xyz = np.array([[1.0, 2.0, 3.0]], dtype=np.float64)
-pc = PointCloud.from_xyz(xyz)
-```
-
-### 属性方法 — 必须 float32
-
-```python
-# ✅ 正确
-intensity = np.array([100.0, 200.0], dtype=np.float32)
-pc.set_intensity(intensity)
-
-# ❌ 错误: float64
-intensity = np.array([100.0, 200.0], dtype=np.float64)
-pc.set_intensity(intensity)  # TypeError
-
-# 修复: .astype(np.float32)
-pc.set_intensity(intensity.astype(np.float32))
-```
-
-### 数据维度
-
-- **XYZ**: `(N, 3)` 形状的 2D 数组
-- **Intensity**: `(N,)` 形状的 1D 数组
-- **自定义属性**: `(N,)` 形状的 1D 数组
-
-## 🤝 贡献指南
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 确保通过所有检查:
-   ```bash
-   just fmt && just lint && just test && just pre-commit
-   ```
-4. 提交更改 (`git commit -m 'Add amazing feature'`)
-5. 推送到分支 (`git push origin feature/amazing-feature`)
-6. 创建 Pull Request
-
-查看 [开发指南](https://YOUR_USERNAME.github.io/pcl-rustic/development/setup/) 了解更多。
-
-## 📄 许可证
-
-MIT License — 查看 [LICENSE](LICENSE) 文件。
-
-## 👨‍💻 作者
-
-**liuzhen19** — [liuzhen19@xiaomi.com](mailto:liuzhen19@xiaomi.com)
-
-## 🔗 相关资源
-
-- [Burn Framework](https://github.com/tracel-ai/burn) — Rust 深度学习框架
-- [PyO3](https://pyo3.rs/) — Rust 的 Python 绑定
-- [NumPy](https://numpy.org/) — Python 科学计算库
-- [Maturin](https://github.com/PyO3/maturin) — Rust-Python 打包工具
-
-## 🐛 问题排查
-
-| 问题 | 解决 |
-|------|------|
-| `必须是dtype=float32的2D numpy数组` | `xyz = xyz.astype(np.float32)` |
-| `error: failed to compile` | `rustup update stable && cargo clean && maturin develop --release` |
-| `No module named 'pcl_rustic._core'` | `maturin develop --release` |
-
-## 📈 路线图
-
-- [ ] GPU 加速支持
-- [ ] 更多下采样策略（FPS, Normal-based）
-- [ ] 点云配准算法（ICP, NDT）
-- [ ] 法向量估计
-- [ ] 点云分割
-
----
-
-**Star ⭐ 本项目以支持开发！**
+MIT License -- see [LICENSE](LICENSE).

@@ -53,9 +53,9 @@ jobs:
         run: |
           uv sync --locked --all-extras --dev
 
-      - name: Run tests with coverage
+      - name: Run tests
         run: |
-          just test
+          uv run pytest -m "not slow and not bench"
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v7

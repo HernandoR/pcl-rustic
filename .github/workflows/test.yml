@@ -99,9 +99,9 @@ jobs:
         run: |
           uv sync --locked --all-extras --dev
 
-      - name: Run tests with coverage
+      - name: Run tests
         run: |
-          just test
+          uv run pytest -m "not slow and not bench"
         env:
           PYTHONIOENCODING: utf-8
 
@@ -352,7 +352,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          just benchmark
+          just bench
 
       - name: Upload benchmark results
         if: always()

@@ -1,229 +1,173 @@
 #!/usr/bin/env python3
-"""
-PCL Rustic 使用示例
+"""pcl-rustic usage examples.
 
-演示完整的点云处理工作流
+Demonstrates construction, dimension access, the laspy-aligned dtype
+contract, geometry, device selection, file I/O, and optional torch interop.
 """
+
+from __future__ import annotations
 
 import math
+import tempfile
+from pathlib import Path
 
-from pcl_rustic import DownsampleStrategy, PointCloud
+import numpy as np
+from pcl_rustic import DownsampleStrategy, PointCloud, available_devices, default_device
 
 
-def example_basic_operations():
-    """基本操作示例"""
-    print("\n=== 基本操作 ===")
+def example_construction() -> None:
+    """Three ways to build a point cloud."""
+    print("\n== construction ==")
 
-    # 创建点云
-    xyz = [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ]
+    # From an (N, 3) array of any real dtype; always promoted to f8.
+    xyz = np.random.default_rng(0).normal(size=(1000, 3)) * 10.0
     pc = PointCloud.from_xyz(xyz)
-    print(f"创建点云：{pc}")
-    print(f"点数：{pc.point_count()}")
-    print(f"XYZ坐标：{pc.get_xyz()}")
+    print(f"from_xyz: {len(pc)} points, xyz dtype = {pc.xyz.dtype}")
+
+    # From a dict of dimension arrays.
+    pc2 = PointCloud.from_numpy(
+        {
+            "xyz": xyz,
+            "intensity": np.random.default_rng(1).integers(0, 65535, size=1000),
+        }
+    )
+    print(f"from_numpy: intensity dtype = {pc2.dtypes['intensity']}")
+
+    # From a file (see example_file_io below for a full round trip).
+    print(f"PointCloud() empty: {len(PointCloud())} points")
 
 
-def example_properties():
-    """属性操作示例"""
-    print("\n=== 属性操作 ===")
+def example_dimension_access() -> None:
+    """Dict-style and attribute-style dimension access, with the dtype promise."""
+    print("\n== dimension access ==")
 
-    xyz = [[i, i, i] for i in range(5)]
-    pc = PointCloud.from_xyz(xyz)
-
-    # 设置intensity
-    intensity = [100.0, 110.0, 120.0, 130.0, 140.0]
-    pc.set_intensity(intensity)
-    print(f"设置intensity：{pc.get_intensity()}")
-
-    # 设置RGB
-    rgb = [
-        [255, 0, 0],  # 红
-        [0, 255, 0],  # 绿
-        [0, 0, 255],  # 蓝
-        [255, 255, 0],  # 黄
-        [255, 0, 255],  # 紫
-    ]
-    pc.set_rgb(rgb)
-    print(f"设置RGB：{pc.get_rgb()}")
-
-    # 添加自定义属性
-    pc.add_attribute("confidence", [0.9, 0.8, 0.7, 0.6, 0.5])
-    pc.add_attribute("category", [1.0, 1.0, 2.0, 2.0, 3.0])
-    print(f"属性列表：{pc.attribute_names()}")
-    print(f"confidence：{pc.get_attribute('confidence')}")
-
-
-def example_transform():
-    """坐标变换示例"""
-    print("\n=== 坐标变换 ===")
-
-    # 创建简单点云
-    xyz = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    xyz = np.random.default_rng(2).normal(size=(500, 3))
     pc = PointCloud.from_xyz(xyz)
 
-    # 示例1：缩放变换
-    print("\n缩放变换（2倍）：")
-    scale_matrix = [
-        [2.0, 0.0, 0.0],
-        [0.0, 2.0, 0.0],
-        [0.0, 0.0, 2.0],
-    ]
-    pc_scaled = pc.transform(scale_matrix)
-    print(f"原始：{pc.get_xyz()[0]}")
-    print(f"缩放后：{pc_scaled.get_xyz()[0]}")
+    # Standard dimensions carry pinned dtypes (ADR-0002): setters coerce
+    # same-kind arrays, and reject or overflow-check anything else.
+    pc["classification"] = np.zeros(len(pc), dtype=np.uint8)
+    pc.intensity = np.arange(len(pc)) % 1000  # int64 list coerces to u2
 
-    # 示例2：旋转变换（绕Z轴45度）
-    print("\n旋转变换（绕Z轴45度）：")
-    angle = math.pi / 4  # 45度
-    rotation_matrix = [
-        [math.cos(angle), -math.sin(angle), 0.0],
-        [math.sin(angle), math.cos(angle), 0.0],
-        [0.0, 0.0, 1.0],
-    ]
-    pc_rotated = pc.transform(rotation_matrix)
-    print(f"旋转后：{[round(v, 2) for v in pc_rotated.get_xyz()[0]]}")
+    print(f"classification dtype: {pc.dtypes['classification']}")
+    print(f"intensity dtype: {pc.dtypes['intensity']} (coerced from int64)")
 
-    # 示例3：刚体变换（旋转+平移）
-    print("\n刚体变换（恒等旋转+平移）：")
-    identity_rotation = [
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ]
-    translation = [10.0, 20.0, 30.0]
-    pc_rigid = pc.rigid_transform(identity_rotation, translation)
-    print(f"平移后：{pc_rigid.get_xyz()[0]}")
+    try:
+        pc.classification = np.full(len(pc), 1.5)  # float into u1: rejected
+    except TypeError as exc:
+        print(f"float -> u1 correctly rejected: {exc}")
+
+    try:
+        pc.intensity = np.full(len(pc), -1, dtype=np.int32)  # out of range
+    except OverflowError as exc:
+        print(f"out-of-range value correctly rejected: {exc}")
+
+    # Extra dimensions must be declared before use.
+    pc.add_extra_dim("confidence", "f4")
+    pc.confidence = np.random.default_rng(3).random(len(pc)).astype(np.float32)
+    print(f"declared dims: {pc.dims}")
 
 
-def example_downsample():
-    """下采样示例"""
-    print("\n=== 体素下采样 ===")
+def example_geometry() -> None:
+    """Coordinate transforms."""
+    print("\n== geometry ==")
 
-    # 创建密集点云（一个体素内有多个点）
-    xyz = [
-        # 体素1：围绕(0,0,0)
-        [0.1, 0.1, 0.1],
-        [0.2, 0.1, 0.1],
-        [0.1, 0.2, 0.1],
-        [0.2, 0.2, 0.2],
-        # 体素2：围绕(1,1,1)
-        [1.1, 1.1, 1.1],
-        [1.2, 1.1, 1.1],
-        [1.1, 1.2, 1.1],
-        [1.2, 1.2, 1.2],
-        # 体素3：围绕(2,2,2)
-        [2.1, 2.1, 2.1],
-        [2.2, 2.1, 2.1],
-    ]
+    xyz = np.random.default_rng(4).normal(size=(200, 3))
     pc = PointCloud.from_xyz(xyz)
-    print(f"原始点数：{pc.point_count()}")
 
-    # 随机采样
-    pc_random = pc.voxel_downsample(1.0, DownsampleStrategy.RANDOM)
-    print(f"随机采样后：{pc_random.point_count()}个点")
+    theta = math.radians(30)
+    rotation = np.array(
+        [
+            [math.cos(theta), -math.sin(theta), 0.0],
+            [math.sin(theta), math.cos(theta), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    translation = np.array([1.0, 2.0, 3.0])
 
-    # 重心采样
-    pc_centroid = pc.voxel_downsample(1.0, DownsampleStrategy.CENTROID)
-    print(f"重心采样后：{pc_centroid.point_count()}个点")
+    pc_rigid = pc.rigid_transform(rotation, translation)
+    print(f"rigid_transform: first point moved by {pc_rigid.xyz[0] - pc.xyz[0]}")
+
+    matrix = np.eye(4)
+    matrix[:3, :3] = rotation
+    matrix[:3, 3] = translation
+    pc_transformed = pc.transform(matrix)
+    np.testing.assert_allclose(pc_transformed.xyz, pc_rigid.xyz, atol=1e-3)
+    print("transform(4x4) matches rigid_transform for the same rotation+translation")
 
 
-def example_complete_workflow():
-    """完整工作流示例"""
-    print("\n=== 完整工作流 ===")
+def example_downsample() -> None:
+    """Voxel downsampling strategies."""
+    print("\n== voxel downsample ==")
 
-    # 1. 创建点云
-    xyz = [[i * 0.1, i * 0.1, i * 0.1] for i in range(100)]
+    xyz = np.random.default_rng(5).normal(size=(50_000, 3)) * 10.0
     pc = PointCloud.from_xyz(xyz)
-    print(f"1. 创建点云：{pc.point_count()}个点")
 
-    # 2. 添加属性
-    intensity = [i * 1.0 for i in range(100)]
-    pc.set_intensity(intensity)
-    pc.add_attribute("height", [h * 0.5 for h in range(100)])
-    print("2. 添加属性：intensity, height")
+    pc_centroid = pc.voxel_downsample(
+        0.5, strategy=DownsampleStrategy.NEAREST_TO_CENTROID
+    )
+    pc_random = pc.voxel_downsample(0.5, strategy=DownsampleStrategy.RANDOM, seed=42)
 
-    # 3. 应用变换
-    matrix = [
-        [1.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-    ]
-    pc = pc.transform(matrix)
-    print("3. 应用变换")
-
-    # 4. 下采样
-    pc_downsampled = pc.voxel_downsample(0.5, DownsampleStrategy.CENTROID)
-    print(f"4. 下采样：{pc.point_count()}个点 -> {pc_downsampled.point_count()}个点")
-
-    # 5. 查看结果
-    print("5. 结果统计：")
-    print(f"   - 点数：{pc_downsampled.point_count()}")
-    print(f"   - 有intensity：{pc_downsampled.has_intensity()}")
-    print(f"   - 属性：{pc_downsampled.attribute_names()}")
-    print(f"   - 内存占用：{pc_downsampled.memory_usage()} 字节")
+    print(f"original: {len(pc):,} points")
+    print(f"nearest-to-centroid: {len(pc_centroid):,} points")
+    print(f"random (seed=42): {len(pc_random):,} points")
 
 
-def example_parquet_io():
-    """Parquet 读写示例"""
-    print("\n=== Parquet IO ===")
+def example_device_selection() -> None:
+    """Runtime device selection (ADR-0001)."""
+    print("\n== device selection ==")
 
-    xyz = [[i * 0.1, i * 0.2, i * 0.3] for i in range(10)]
+    print(f"available devices: {available_devices()}")
+    print(f"default device: {default_device()}")
+
+    pc = PointCloud.from_xyz(np.zeros((10, 3)))
+    print(f"new cloud runs on: {pc.device}")
+
+
+def example_file_io() -> None:
+    """Read/write round trip across formats (ADR-0004)."""
+    print("\n== file I/O ==")
+
+    xyz = np.random.default_rng(6).normal(size=(1000, 3)) * 50.0
     pc = PointCloud.from_xyz(xyz)
-    pc.set_intensity([float(i) for i in range(10)])
-    pc.set_rgb([[i * 10 % 256, i * 20 % 256, i * 30 % 256] for i in range(10)])
+    pc["intensity"] = np.random.default_rng(7).integers(0, 65535, size=len(pc))
+    pc["classification"] = np.random.default_rng(8).integers(0, 10, size=len(pc))
 
-    path = "./tmp_points.parquet"
-    pc.to_parquet(path)
-    pc_loaded = PointCloud.from_parquet(path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "cloud.parquet"
+        pc.write(str(path))
+        loaded = PointCloud.read(str(path))
+        print(f"parquet round trip: {len(loaded)} points, dims={loaded.dims}")
 
-    print(f"写入Parquet: {path}")
-    print(f"读取Parquet点数: {pc_loaded.point_count()}")
+        las_path = Path(tmpdir) / "cloud.laz"
+        pc.write(str(las_path))
+        loaded_laz = PointCloud.read(str(las_path))
+        print(f"laz round trip: {len(loaded_laz)} points (compressed)")
 
 
-def example_memory_efficiency():
-    """内存效率示例"""
-    print("\n=== 内存效率 ===")
+def example_torch_interop() -> None:
+    """Optional torch interop (ADR-0001) -- only runs if torch is installed."""
+    print("\n== torch interop (optional) ==")
 
-    # 只有XYZ
-    pc1 = PointCloud.from_xyz([[i, i, i] for i in range(1000)])
-    mem1 = pc1.memory_usage()
-    print(f"只有XYZ：{mem1} 字节")
+    try:
+        import torch
+    except ImportError:
+        print("torch is not installed; skipping this example")
+        return
 
-    # XYZ + intensity
-    pc2 = PointCloud.from_xyz([[i, i, i] for i in range(1000)])
-    pc2.set_intensity([float(i) for i in range(1000)])
-    mem2 = pc2.memory_usage()
-    print(f"XYZ + intensity：{mem2} 字节（增加{mem2 - mem1}字节）")
+    xyz = torch.rand((100, 3), dtype=torch.float64) * 10.0
+    pc = PointCloud.from_xyz(xyz)  # zero-copy on CPU via DLPack
+    print(f"built from a torch tensor: {len(pc)} points")
 
-    # XYZ + intensity + RGB
-    pc3 = PointCloud.from_xyz([[i, i, i] for i in range(1000)])
-    pc3.set_intensity([float(i) for i in range(1000)])
-    pc3.set_rgb([[i % 256, i % 256, i % 256] for i in range(1000)])
-    mem3 = pc3.memory_usage()
-    print(f"XYZ + intensity + RGB：{mem3} 字节（增加{mem3 - mem2}字节）")
+    tensor_x = pc.to_torch("x")
+    print(f"to_torch('x'): {type(tensor_x).__name__}, dtype={tensor_x.dtype}")
 
 
 if __name__ == "__main__":
-    print("PCL Rustic 使用示例")
-    print("=" * 50)
-
-    try:
-        example_basic_operations()
-        example_properties()
-        example_transform()
-        example_downsample()
-        example_complete_workflow()
-        example_parquet_io()
-        example_memory_efficiency()
-
-        print("\n" + "=" * 50)
-        print("所有示例完成！")
-    except Exception as e:
-        print(f"\n错误：{e}")
-        import traceback
-
-        traceback.print_exc()
+    example_construction()
+    example_dimension_access()
+    example_geometry()
+    example_downsample()
+    example_device_selection()
+    example_file_io()
+    example_torch_interop()
