@@ -174,3 +174,50 @@ reports:
    the same subtraction with a raw `-`. One-line fix, filed as laz-rs/laz-rs#72
    with a pure-`laz` reproducer (500 points, panics in debug, clean in
    release).
+
+---
+
+## Finding appended 2026-08-23 (baseline comparison)
+
+`tests/test_benchmark_compare.py` (`just bench-compare`) now measures against
+Open3D 0.19 and laspy 2.7. PCL itself is not benchmarked: its Python bindings
+are dead (`pclpy` requires `==3.6.*` with a Windows-only wheel, `python-pcl`'s
+newest release is a 2018 cp27/cp35 alpha), so a PCL comparison would require a
+separate C++ harness.
+
+Result on a 96-thread EPYC 7R13, CPU `flex` device:
+
+| Operation | Points | pcl-rustic | baseline | Result |
+|---|---|---|---|---|
+| `voxel_downsample` | 1M | 0.92 s | Open3D 0.66 s | 1.4x slower |
+| `voxel_downsample` | 10M | 12.1 s | Open3D 12.3 s | parity |
+| `transform` (warm) | 1M | 12 ms | Open3D 3 ms | 4x slower |
+| `transform` (warm) | 10M | 481 ms | Open3D 29 ms | 17x slower |
+| LAS read + xyz | 2M | 0.24 s | laspy 0.04 s | 6.5x slower |
+
+**We are not faster than Open3D on CPU today.** The dominant cost is
+structural, not incidental: ADR-0002 stores coordinates as f32 relative to an
+f64 offset, so every `.xyz` read materializes and converts a fresh (N, 3) f8
+array. Instrumented at 10M points, a warm transform splits into 153 ms of
+submit and **362 ms of readback**. Open3D keeps f64 natively and hands back a
+zero-copy view, so it pays neither cost.
+
+What the comparison does confirm:
+
+- **Dtype parity with laspy is exact** on a real LAS file (`intensity` u2,
+  `classification` u1, values identical) -- the headline goal of the redesign.
+- **Coordinate values are not bit-identical to laspy.** The f32 relative
+  storage deviates by up to 3.03e-5 m at a +/-500 m extent. That is 3.0% of
+  the default 1 mm LAS scale step, so it stays inside file quantization and
+  the ADR-0002 claim ("f32 error stays below LAS quantization for typical
+  extents") holds -- but "lossless round-trip" is accurate for dimensions and
+  *not* for coordinates, and the README was corrected accordingly.
+
+Open questions this raises for a future RFC:
+
+- Should CPU-resident clouds store f64 coordinates directly, keeping the
+  f32-relative representation only for GPU devices? That would erase the
+  readback conversion and the fidelity gap at once, at the cost of two
+  coordinate representations.
+- Should `.xyz` cache its materialized array and invalidate on mutation?
+  Repeated reads currently re-convert every time.

@@ -39,6 +39,10 @@ docs = [
     "mkdocs-material>=9.5.0",
     "mkdocs-git-revision-date-localized-plugin>=1.2.0",
 ]
+bench = [
+    "open3d>=0.19",
+    "laspy[lazrs]>=2.5",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

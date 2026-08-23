@@ -27,6 +27,11 @@ test-all: dev
 bench: build
     uv run pytest -m bench -s
 
+# Run benchmarks including the Open3D / laspy comparison
+bench-compare: build
+    uv sync --group bench
+    uv run pytest -m bench -s
+
 # Run Rust unit tests
 test-rust:
     cargo test --release

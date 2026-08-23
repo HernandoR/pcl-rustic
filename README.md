@@ -162,6 +162,7 @@ just build       # maturin develop --release
 just test        # fast suite: pytest -m "not slow and not bench"
 just test-all    # everything except benchmarks
 just bench       # throughput benchmarks: pytest -m bench -s
+just bench-compare  # same, plus Open3D/laspy comparison (installs `bench` group)
 just test-rust   # cargo test --release
 just fmt         # cargo fmt + ruff format
 just lint        # cargo clippy + ruff check
@@ -179,6 +180,39 @@ release build, `just bench`):
 | `transform` (4x4, incl. readback) | 10M | 0.51 s | 19.6M pts/s |
 
 Numbers vary by host; run `just bench` locally.
+
+### Compared to Open3D and laspy
+
+`just bench-compare` measures the same operations against Open3D 0.19 and
+laspy 2.7 on the same host. Current standing, stated plainly:
+
+| Operation | Points | pcl-rustic | baseline | Result |
+|---|---|---|---|---|
+| `voxel_downsample` (0.15) | 1M | 0.91 s | Open3D 0.66 s | 1.4x slower |
+| `voxel_downsample` (0.15) | 10M | 11.3 s | Open3D 11.7 s | ~parity |
+| `transform` (4x4, warm) | 1M | 12 ms | Open3D 3 ms | 4x slower |
+| `transform` (4x4, warm) | 10M | 481 ms | Open3D 29 ms | 17x slower |
+| LAS read + xyz | 2M | 0.25 s | laspy 0.04 s | 6.8x slower |
+
+**pcl-rustic is not currently faster than Open3D on CPU.** Two structural
+reasons, both consequences of ADR-0002 rather than incidental inefficiency:
+
+- Coordinates are stored as f32 relative to an f64 offset, so every `.xyz`
+  read materializes and converts a fresh (N, 3) f8 array. At 10M points that
+  readback is 362 ms of the 481 ms transform. Open3D stores f64 natively and
+  returns a zero-copy view.
+- Open3D's `voxel_down_sample` averages each voxel; our
+  `NEAREST_TO_CENTROID` additionally finds the nearest existing point.
+
+What pcl-rustic does deliver against these baselines: exact dtype parity with
+laspy (`intensity` u2, `classification` u1, verified on a real LAS file), GPU
+eligibility for the coordinate plane, and LAS/LAZ I/O that Open3D lacks
+entirely. Coordinate values are not bit-identical to laspy -- the f32
+relative storage deviates by up to 3.0e-5 m at a +/-500 m extent, which is 3%
+of the default 1 mm LAS scale step and well inside file quantization.
+
+Closing the CPU gap is not yet scheduled work; the readback path is the
+first place to look.
 
 ## Documentation layout
 
