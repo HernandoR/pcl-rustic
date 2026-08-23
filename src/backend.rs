@@ -11,12 +11,13 @@
 //! | `torch`  | `burn/tch`    | `LibTorch` |
 //!
 //! `cpu` maps to `burn/flex` (the pure-Rust CPU backend). The CubeCL
-//! `burn/cpu` backend was tried first per ADR-0001: it compiles cleanly on
-//! this toolchain, but segfaults at runtime on large matmuls (reproduced
-//! deterministically: `Tensor<B,2>` of shape [10M,3] matmul [3,3] on
-//! `DispatchDevice::Cpu` crashes with SIGSEGV after ~300s of runaway JIT
-//! work; [5M,3] completes in 2.4s). `flex` is burn's designated successor to
-//! `ndarray` and handles the same workload correctly.
+//! `burn/cpu` backend was tried first per ADR-0001: it compiles cleanly, but
+//! aborts at runtime on tall matmuls. Reproduced deterministically: a
+//! `[N,3] x [3,3]` f32 matmul on `DispatchDevice::Cpu` overflows the stack of
+//! an internal cubecl worker thread for N >= ~5.6M (N = 5M completes in
+//! 2.3s); the crash is not avoidable by growing the caller's stack, since the
+//! overflowing thread is spawned internally. Same failure on burn 0.21.0 and
+//! 0.22.0-pre.2. `flex` runs the identical [10M,3] workload in 0.22s.
 //!
 //! `torch` also declares a direct optional dependency on `burn-dispatch`
 //! itself (see Cargo.toml). This works around a wiring gap in burn 0.21:
@@ -30,7 +31,9 @@
 //! `tch` feature directly; Cargo unifies it with the `burn-dispatch` instance
 //! pulled in transitively by `burn`, so the variant appears project-wide. We
 //! never reference the `burn_dispatch` crate by name in code -- everything
-//! goes through `burn::Dispatch` / `burn::DispatchDevice`.
+//! goes through `burn::Dispatch` / `burn::DispatchDevice`. This gap is fixed
+//! upstream in burn 0.22, where `burn/tch` reaches `burn-dispatch/tch` via
+//! `burn-core/tch` -> `burn-tensor/tch`; drop the phantom dep on upgrade.
 
 use burn::tensor::Tensor;
 use burn::Dispatch;

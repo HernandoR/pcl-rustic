@@ -11,16 +11,18 @@ crate-type = ["cdylib"]
 
 [features]
 default = ["cpu", "vulkan"]
-# Pure-Rust CPU backend (burn-flex). The CubeCL `burn/cpu` backend compiled
-# fine but segfaults on large matmuls at runtime (reproduced: a [10M,3]x[3,3]
-# f32 matmul crashes with SIGSEGV after ~300s; [5M,3] is fine) -- see
-# src/backend.rs for the fallback rationale pinned in ADR-0001.
+# Pure-Rust CPU backend (burn-flex). The CubeCL `burn/cpu` backend compiles
+# fine but overflows the stack of an internal cubecl worker thread on tall
+# matmuls (a [N,3]x[3,3] f32 matmul aborts for N >= ~5.6M; N = 5M is fine).
+# Reproduces on burn 0.21.0 and 0.22.0-pre.2 -- see src/backend.rs / ADR-0001.
 cpu = ["burn/flex"]
 vulkan = ["burn/vulkan"]
 cuda = ["burn/cuda"]
 # See src/backend.rs for why `torch` also pulls in `burn-dispatch` directly:
-# burn 0.21's own `tch` feature does not forward to burn-dispatch's `tch`
-# feature the way every other backend feature does.
+# burn 0.21's `tch` feature does not forward to burn-dispatch's `tch` feature
+# the way every other backend feature does. Fixed upstream in 0.22
+# (burn/tch -> burn-core/tch -> burn-tensor/tch = burn-dispatch/tch), so drop
+# `dep:burn-dispatch` when upgrading.
 torch = ["burn/tch", "dep:burn-dispatch"]
 
 [dependencies]

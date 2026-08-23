@@ -138,3 +138,37 @@ after ~300s of runaway JIT work, while `[5M,3]` completes in 2.4s. The `cpu`
 feature therefore maps to `burn/flex` (see ADR-0001). This resolves the §5
 open question in flex's favor early; worth reporting upstream to burn with
 the minimal reproduction.
+
+---
+
+## Finding appended 2026-08-23 (upstream triage)
+
+Standalone reproductions were built for the three upstream defects worked
+around during implementation, and each was checked against existing upstream
+reports:
+
+1. **burn `tch` feature does not reach `burn-dispatch`** — *not* designed
+   behaviour, and already fixed upstream. In burn 0.21.0 every backend
+   feature forwards (`cpu`, `cuda`, `flex`, `metal`, `ndarray`, `rocm`,
+   `vulkan`, `webgpu`, `wgpu` all list `burn-dispatch?/X`) except
+   `tch = ["burn-tch", "burn-vision?/tch"]`, while `burn-dispatch/tch`
+   exists and gates the documented `DispatchDevice::LibTorch` variant. In
+   0.22 the chain `burn/tch` → `burn-core/tch` → `burn-tensor/tch` =
+   `burn-dispatch/tch` closes the gap. No issue worth filing; our phantom
+   `burn-dispatch` dependency is dropped on the 0.22 upgrade.
+
+2. **CubeCL CPU backend aborts on tall matmuls** — no existing upstream
+   issue found. Refined diagnosis: it is a *stack overflow on an internal
+   cubecl worker thread*, not a plain SIGSEGV, so callers cannot work around
+   it by enlarging their own stack. A `[N,3] × [3,3]` f32 matmul succeeds at
+   N = 5,000,000 (2.3 s) and aborts at N = 5,592,405 and above, after ~170 s
+   of runaway work. Reproduces identically on burn 0.21.0 and 0.22.0-pre.2;
+   `flex` runs N = 10,000,000 in 0.22 s. Worth filing.
+
+3. **laz GPS-time subtraction overflow** — no open issue, but strong
+   precedent: laz-rs #13 fixed the same class of panic in `rgb.rs`, and #33
+   records the maintainer's policy that these operations are *intended* to
+   wrap and that debug-build overflow panics are found and fixed by
+   converting them to `wrapping_*`. In `laz-0.12.2/src/las/gps.rs` line 556
+   already uses `this_val.value.wrapping_sub(...)`, while line 581 performs
+   the same subtraction with a raw `-`. One-line fix; worth filing.

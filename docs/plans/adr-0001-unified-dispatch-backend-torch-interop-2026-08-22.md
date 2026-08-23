@@ -39,10 +39,20 @@ burn-dispatch; `vulkan` is our pick for Linux/Windows portability. The
 0.20-era `candle-core` pin and the `ndarray` feature are dropped.
 
 `cpu` is backed by `burn/flex`, not the CubeCL `burn/cpu` backend: the
-latter compiles cleanly but segfaults at runtime on large matmuls
-(reproduced deterministically on a [10M,3]×[3,3] f32 matmul on
-`DispatchDevice::Cpu`; [5M,3] completes in 2.4s). Revisit when burn-cpu
-stabilizes.
+latter compiles cleanly but aborts at runtime on tall matmuls. A
+`[N,3] × [3,3]` f32 matmul on `DispatchDevice::Cpu` overflows the stack of
+an internal cubecl worker thread for N ≥ ~5.6M (N = 5M completes in 2.3s);
+growing the caller's stack does not help, because the overflowing thread is
+spawned internally. The same failure reproduces on burn 0.21.0 and
+0.22.0-pre.2, and `flex` runs the identical [10M,3] workload in 0.22s.
+Revisit when burn-cpu stabilizes.
+
+The `torch` feature additionally declares a direct optional dependency on
+`burn-dispatch` with its `tch` feature, because burn 0.21's `tch` feature is
+the only backend feature that does not forward to `burn-dispatch`; without
+it, `DispatchDevice::LibTorch` is never compiled. Upstream fixed this in
+0.22 (`burn/tch` → `burn-core/tch` → `burn-tensor/tch` = `burn-dispatch/tch`),
+so the phantom dependency is dropped when we move to 0.22.
 
 ### Device selection
 
