@@ -1,7 +1,18 @@
 //! `PointCloud`: the single mutation choke point for all dimension data
-//! (ADR-0002, ADR-0003). Coordinates ride a tensor on the compute device as
-//! f32-relative values anchored to an f64 offset; every other dimension is a
-//! CPU-side `DimArray` column, ordered by first insertion.
+//! (ADR-0002, ADR-0003).
+//!
+//! Coordinates have two representations, picked by device placement:
+//!
+//! * **CPU-resident** clouds hold absolute f64 coordinates in a plain `Vec`.
+//!   This is the common case. It makes `x`/`y`/`z` exact (no f32 rounding),
+//!   and it removes the f32 -> f64 conversion that used to dominate every
+//!   coordinate read.
+//! * **Device-resident** clouds hold f32 values relative to `offset`, since
+//!   wgpu has no f64. Precision then depends on the cloud's extent, which is
+//!   why `offset` anchors near the data.
+//!
+//! `offset` and `scales` are retained in both cases: they are LAS header
+//! metadata and the anchor for the device representation.
 //!
 //! `transform.rs` and `voxel.rs` are submodules of `cloud` and read/write
 //! `PointCloud`'s private fields directly (Rust module privacy allows this
@@ -17,14 +28,25 @@ use crate::cloud::dims::{is_coordinate_name, standard_dim_dtype, DType, DimArray
 use crate::error::{Error, Result};
 use burn::tensor::{Tensor, TensorData};
 
+/// How a cloud's coordinates are stored. See the module comment.
+#[derive(Clone)]
+pub(crate) enum Coords {
+    /// Absolute f64, row-major `[x0,y0,z0,...]`, CPU-resident.
+    Cpu(Vec<f64>),
+    /// f32 relative to the cloud's `offset`, shape `[len, 3]`, on-device.
+    /// Boxed: a burn `Tensor` handle is far larger than a `Vec`, and this
+    /// variant is the uncommon one.
+    Device(Box<Tensor<B, 2>>),
+}
+
 /// A point cloud: named, equal-length dimensions plus device placement.
 #[derive(Clone)]
 pub struct PointCloud {
-    /// Coordinates relative to `offset`, f32, shape `[len, 3]`. `None` until
-    /// the first coordinate write, so a freshly constructed cloud never
-    /// allocates a device tensor.
-    coords_rel: Option<Tensor<B, 2>>,
-    /// Per-cloud f64 anchor added back on every coordinate read (ADR-0002).
+    /// `None` until the first coordinate write, so a freshly constructed
+    /// cloud allocates nothing.
+    pub(crate) coords: Option<Coords>,
+    /// Per-cloud f64 anchor: the origin of the device representation, and
+    /// the LAS header offset (ADR-0002).
     offset: [f64; 3],
     /// LAS scale factors, kept only for LAS write fidelity (ADR-0002).
     scales: [f64; 3],
@@ -38,7 +60,7 @@ pub struct PointCloud {
 impl PointCloud {
     pub fn new() -> Self {
         Self {
-            coords_rel: None,
+            coords: None,
             offset: [0.0; 3],
             scales: [0.001; 3],
             dims: Vec::new(),
@@ -56,7 +78,7 @@ impl PointCloud {
     }
 
     fn is_established(&self) -> bool {
-        self.coords_rel.is_some() || !self.dims.is_empty()
+        self.coords.is_some() || !self.dims.is_empty()
     }
 
     /// Single mutation choke point: every write that changes (or first
@@ -79,6 +101,20 @@ impl PointCloud {
         self.dims.iter().position(|(n, _)| n == name)
     }
 
+    /// Clones everything except the coordinate buffer, for operations that
+    /// immediately overwrite it. Cloning `self` wholesale would copy the
+    /// entire coordinate plane (240 MB at 10M points) only to drop it.
+    pub(crate) fn clone_without_coords(&self) -> Self {
+        Self {
+            coords: None,
+            offset: self.offset,
+            scales: self.scales,
+            dims: self.dims.clone(),
+            len: self.len,
+            device: self.device.clone(),
+        }
+    }
+
     // ---- coordinate plane ---------------------------------------------
 
     pub fn offset(&self) -> [f64; 3] {
@@ -94,9 +130,26 @@ impl PointCloud {
     }
 
     /// Row-major `[x0,y0,z0,x1,y1,z1,...]` f8 coordinates, or `None` if
-    /// coordinates were never established.
+    /// coordinates were never established. CPU-resident clouds copy their
+    /// buffer; device-resident clouds transfer and widen f32 -> f64.
     pub fn coords_f64(&self) -> Option<Vec<f64>> {
-        let tensor = self.coords_rel.as_ref()?;
+        match self.coords.as_ref()? {
+            Coords::Cpu(v) => Some(v.clone()),
+            Coords::Device(t) => Some(self.device_coords_to_f64(t)),
+        }
+    }
+
+    /// Borrows the coordinate buffer without copying. `None` when the cloud
+    /// has no coordinates *or* is device-resident (where no contiguous f64
+    /// buffer exists); callers must fall back to [`Self::coords_f64`].
+    pub fn coords_f64_slice(&self) -> Option<&[f64]> {
+        match self.coords.as_ref()? {
+            Coords::Cpu(v) => Some(v.as_slice()),
+            Coords::Device(_) => None,
+        }
+    }
+
+    fn device_coords_to_f64(&self, tensor: &Tensor<B, 2>) -> Vec<f64> {
         let rel: Vec<f32> = tensor
             .to_data()
             .to_vec::<f32>()
@@ -107,24 +160,28 @@ impl PointCloud {
             out.push(self.offset[1] + chunk[1] as f64);
             out.push(self.offset[2] + chunk[2] as f64);
         }
-        Some(out)
+        out
     }
 
     /// A single coordinate axis (`0=x, 1=y, 2=z`) as f8, or `None` if
     /// coordinates were never established.
     pub fn axis_f64(&self, axis: usize) -> Option<Vec<f64>> {
-        let tensor = self.coords_rel.as_ref()?;
-        let rel: Vec<f32> = tensor
-            .to_data()
-            .to_vec::<f32>()
-            .expect("coordinate tensor is always f32");
-        Some(
-            rel.as_chunks::<3>()
-                .0
-                .iter()
-                .map(|c| self.offset[axis] + c[axis] as f64)
-                .collect(),
-        )
+        match self.coords.as_ref()? {
+            Coords::Cpu(v) => Some(v.as_chunks::<3>().0.iter().map(|c| c[axis]).collect()),
+            Coords::Device(t) => {
+                let rel: Vec<f32> = t
+                    .to_data()
+                    .to_vec::<f32>()
+                    .expect("coordinate tensor is always f32");
+                Some(
+                    rel.as_chunks::<3>()
+                        .0
+                        .iter()
+                        .map(|c| self.offset[axis] + c[axis] as f64)
+                        .collect(),
+                )
+            }
+        }
     }
 
     /// Establishes or replaces coordinates wholesale from row-major f8 data,
@@ -159,6 +216,18 @@ impl PointCloud {
                 [0.0; 3]
             }
         });
+        self.offset = offset;
+        self.coords = Some(self.encode_coords(xyz, n));
+        Ok(())
+    }
+
+    /// Builds the representation this cloud's device calls for: absolute f64
+    /// on CPU, f32 relative to `offset` on an accelerator.
+    fn encode_coords(&self, xyz: &[f64], n: usize) -> Coords {
+        if backend::is_cpu_device(&self.device) {
+            return Coords::Cpu(xyz.to_vec());
+        }
+        let offset = self.offset;
         let rel: Vec<f32> = xyz
             .as_chunks::<3>()
             .0
@@ -171,34 +240,30 @@ impl PointCloud {
                 ]
             })
             .collect();
-        self.offset = offset;
-        self.coords_rel = Some(Tensor::<B, 2>::from_data(
+        Coords::Device(Box::new(Tensor::<B, 2>::from_data(
             TensorData::new(rel, [n, 3]),
             &self.device,
-        ));
-        Ok(())
+        )))
     }
 
-    /// Sets one coordinate axis (`0=x, 1=y, 2=z`) in place, using the
-    /// existing offset. If this is the cloud's first coordinate write, the
-    /// other two axes are established at zero (offset stays `[0,0,0]`).
+    /// Sets one coordinate axis (`0=x, 1=y, 2=z`) in place. If this is the
+    /// cloud's first coordinate write, the other two axes are established at
+    /// zero.
     pub fn set_axis_f64(&mut self, axis: usize, values: &[f64]) -> Result<()> {
         let n = values.len();
         self.check_or_set_len(n)?;
-        let mut rel = match &self.coords_rel {
-            Some(t) => t
-                .to_data()
-                .to_vec::<f32>()
-                .expect("coordinate tensor is always f32"),
-            None => vec![0.0f32; n * 3],
+        // Work in absolute f64 regardless of the current representation, so
+        // the write is exact; re-encode for the device at the end.
+        let mut abs = match self.coords.as_ref() {
+            Some(_) => self
+                .coords_f64()
+                .expect("coords is Some, so coords_f64 yields a buffer"),
+            None => vec![0.0f64; n * 3],
         };
         for (row, &v) in values.iter().enumerate() {
-            rel[row * 3 + axis] = (v - self.offset[axis]) as f32;
+            abs[row * 3 + axis] = v;
         }
-        self.coords_rel = Some(Tensor::<B, 2>::from_data(
-            TensorData::new(rel, [n, 3]),
-            &self.device,
-        ));
+        self.coords = Some(self.encode_coords(&abs, n));
         Ok(())
     }
 
@@ -206,14 +271,14 @@ impl PointCloud {
 
     pub fn has_dim(&self, name: &str) -> bool {
         if is_coordinate_name(name) {
-            return self.coords_rel.is_some();
+            return self.coords.is_some();
         }
         self.dim_index(name).is_some()
     }
 
     pub fn dim_names(&self) -> Vec<String> {
         let mut names = Vec::with_capacity(self.dims.len() + 3);
-        if self.coords_rel.is_some() {
+        if self.coords.is_some() {
             names.push("x".to_string());
             names.push("y".to_string());
             names.push("z".to_string());
@@ -224,7 +289,7 @@ impl PointCloud {
 
     pub fn dim_dtypes(&self) -> Vec<(String, DType)> {
         let mut out = Vec::with_capacity(self.dims.len() + 3);
-        if self.coords_rel.is_some() {
+        if self.coords.is_some() {
             out.push(("x".to_string(), DType::F64));
             out.push(("y".to_string(), DType::F64));
             out.push(("z".to_string(), DType::F64));
@@ -292,13 +357,64 @@ impl PointCloud {
 
     // ---- device -----------------------------------------------------------
 
+    /// Moves the cloud to `device`, re-encoding coordinates for the target's
+    /// representation (absolute f64 on CPU, f32 relative to `offset` on an
+    /// accelerator). Moving GPU -> CPU therefore widens back to f64, but the
+    /// f32 rounding already incurred is not recovered.
     pub fn to_device(&self, device: DispatchDevice) -> Self {
         let mut cloned = self.clone();
-        if let Some(t) = cloned.coords_rel.take() {
-            cloned.coords_rel = Some(t.to_device(&device));
+        if self.coords.is_some() {
+            let abs = self
+                .coords_f64()
+                .expect("coords is Some, so coords_f64 yields a buffer");
+            cloned.device = device;
+            cloned.coords = Some(cloned.encode_coords(&abs, self.len));
+        } else {
+            cloned.device = device;
         }
-        cloned.device = device;
         cloned
+    }
+
+    /// Clones the cloud keeping only the rows in `selected`, gathering the
+    /// coordinate plane and every dimension column by the same indices.
+    /// `selected` must be in-bounds; callers pass it sorted ascending so the
+    /// output preserves input order.
+    pub(crate) fn with_gathered_rows(&self, selected: &[u32]) -> Result<Self> {
+        let m = selected.len();
+        let mut result = self.clone_without_coords();
+
+        result.coords = match self.coords.as_ref() {
+            None => None,
+            Some(Coords::Cpu(v)) => {
+                let mut out = Vec::with_capacity(m * 3);
+                for &idx in selected {
+                    let base = idx as usize * 3;
+                    out.extend_from_slice(&v[base..base + 3]);
+                }
+                Some(Coords::Cpu(out))
+            }
+            Some(Coords::Device(t)) => {
+                let rel: Vec<f32> = t
+                    .to_data()
+                    .to_vec::<f32>()
+                    .expect("coordinate tensor is always f32");
+                let mut out = Vec::with_capacity(m * 3);
+                for &idx in selected {
+                    let base = idx as usize * 3;
+                    out.extend_from_slice(&rel[base..base + 3]);
+                }
+                Some(Coords::Device(Box::new(Tensor::<B, 2>::from_data(
+                    TensorData::new(out, [m, 3]),
+                    &self.device,
+                ))))
+            }
+        };
+
+        result.len = m;
+        for (_, dim) in result.dims.iter_mut() {
+            *dim = dim.gather(selected);
+        }
+        Ok(result)
     }
 }
 

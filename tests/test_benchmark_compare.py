@@ -219,8 +219,14 @@ def test_vs_pcl_cpp(tmp_path: Path) -> None:
     _row(
         "transform (4x4)", PCL_POINTS, ours_transform, pcl["transform_secs"], "pcl-c++"
     )
-    # Same voxel binning decision as PCL, independent of speed.
-    assert len(down) == int(pcl["voxel_out"])
+    # Near-identical voxel binning, independent of speed. Not exactly equal:
+    # PCL's PointXYZ is f32 while our CPU coordinates are exact f64, so points
+    # sitting on a voxel boundary can round to different cells. The residual
+    # is a couple of points in ~2M.
+    theirs_out = int(pcl["voxel_out"])
+    assert abs(len(down) - theirs_out) <= max(8, theirs_out // 100_000), (
+        f"voxel counts diverge beyond f32/f64 boundary rounding: {len(down)} vs {theirs_out}"
+    )
     assert moved.shape == (PCL_POINTS, 3)
 
 
@@ -270,18 +276,18 @@ def test_vs_laspy_read(tmp_path: Path) -> None:
     theirs, theirs_xyz = _timed(theirs_op)
 
     _row("LAS read + xyz", IO_POINTS, ours, theirs, "laspy ")
-    # Coordinates are NOT bit-identical to laspy: ADR-0002 stores an f64
-    # offset plus f32 relative coordinates, so reconstruction carries f32
-    # epsilon at the cloud's relative extent. The contract is that this stays
-    # below the LAS scale quantization (1e-3 by default), not that it is zero.
+    # Since the ADR-0002 amendment, CPU-resident clouds hold absolute f64
+    # coordinates, so a LAS round-trip is bit-identical to laspy's: both
+    # compute offset + raw * scale in f64. A GPU-resident cloud would still
+    # carry f32 epsilon; this test runs on CPU.
     las_scale = 1.0e-3
     max_dev = float(np.abs(ours_xyz - theirs_xyz).max())
     print(
         f"{'  coordinate fidelity':<26} max deviation vs laspy = {max_dev:.3e} m "
         f"({max_dev / las_scale:.1%} of the {las_scale} LAS scale step)"
     )
-    assert max_dev < las_scale, (
-        f"deviation {max_dev} exceeds LAS quantization {las_scale}"
+    assert max_dev == 0.0, (
+        f"expected bit-identical coordinates, got deviation {max_dev}"
     )
 
 

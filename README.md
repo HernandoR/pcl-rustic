@@ -193,54 +193,48 @@ identically to every engine including the C++ harness. Without the warmup,
 pcl-rustic's first op in a process pays a one-time kernel-init cost (~55 ms)
 and results depend on test ordering.
 
-Current standing on a 96-thread EPYC 7R13:
+Current standing on a 96-thread EPYC 7R13, after the RFC-0001 optimisation
+pass:
 
 | Operation | Points | pcl-rustic | baseline | Result |
 |---|---|---|---|---|
-| `voxel_downsample` (0.15) | 1M | 1.11 s | Open3D 0.63 s | 1.8x slower |
-| `voxel_downsample` (0.15) | 10M | 11.96 s | Open3D 9.31 s | 1.3x slower |
-| `voxel_downsample` (leaf 1.0) | 2M | 1.82 s | PCL C++ 0.17 s | 10.5x slower |
-| `transform` (4x4) | 1M | 12 ms | Open3D 3 ms | 4.1x slower |
-| `transform` (4x4) | 10M | 112 ms | Open3D 28 ms | 4.0x slower |
-| `transform` (4x4) | 2M | 24 ms | PCL C++ 4 ms | 5.7x slower |
-| LAS read + xyz | 2M | 0.25 s | laspy 0.04 s | 7.1x slower |
+| `voxel_downsample` (0.15) | 1M | 0.12 s | Open3D 0.56 s | **4.8x faster** |
+| `voxel_downsample` (0.15) | 10M | 1.63 s | Open3D 9.93 s | **6.1x faster** |
+| `voxel_downsample` (leaf 1.0) | 2M | 0.28 s | PCL C++ 0.17 s | 1.6x slower |
+| `transform` (4x4) | 1M | 9 ms | Open3D 3 ms | 3.2x slower |
+| `transform` (4x4) | 10M | 50 ms | Open3D 28 ms | 1.8x slower |
+| `transform` (4x4) | 2M | 14 ms | PCL C++ 4 ms | 3.5x slower |
+| LAS read + xyz | 2M | 0.07 s | laspy 0.03 s | 2.1x slower |
 
-**pcl-rustic is not currently faster than Open3D or PCL on CPU.** Two
-structural reasons, both consequences of ADR-0002 rather than incidental
-inefficiency:
+Coordinates are **bit-identical to laspy** on a LAS round-trip (measured
+deviation exactly 0.0), because CPU-resident clouds hold absolute f64.
 
-- Coordinates are stored as f32 relative to an f64 offset, so every `.xyz`
-  read materializes and converts a fresh (N, 3) f8 array. Instrumented, that
-  readback is 63% of a 1M transform and 72% of a 10M one. It is also a large
-  transient allocation, which makes the timing allocator-sensitive: the same
-  10M transform measures anywhere from 112 ms to 509 ms depending on whether
-  the previous result buffer is still alive when the next is allocated.
-  Open3D stores f64 natively and returns a zero-copy view; PCL uses f32
-  throughout with no Python boundary.
-- Open3D's `voxel_down_sample` and PCL's `VoxelGrid` both average each voxel;
-  our `NEAREST_TO_CENTROID` additionally finds the nearest existing point.
+For reference, the same table before the optimisation pass read 1.8x *slower*
+than Open3D on 1M voxel downsampling, 10.5x slower than PCL, and carried a
+3.03e-5 m coordinate deviation. What changed:
 
-What pcl-rustic does deliver against these baselines: exact dtype parity with
-laspy (`intensity` u2, `classification` u1, verified on a real LAS file), GPU
-eligibility for the coordinate plane, LAS/LAZ I/O that Open3D lacks entirely,
-and a voxel grid without PCL's size limit -- PCL's `VoxelGrid` indexes voxels
-with a 32-bit integer and *silently returns the cloud unfiltered* when the
-grid overflows it (measured: leaf 0.15 over a +/-500 m extent returns all
-2,000,000 points untouched, where pcl-rustic downsamples normally). At a leaf
-size PCL accepts, the two agree exactly on output size (1,955,826 points).
+- **Voxel downsampling** replaced a `HashMap<[i64;3], Vec<u32>>` -- one heap
+  allocation per voxel -- with sort-based grouping: sort point indices by
+  voxel key once, then scan runs. Cost no longer scales with voxel count.
+- **Coordinates** are stored as absolute f64 on CPU instead of f32 relative
+  to an offset, which removed the f32->f64 widening pass from every read and
+  closed the laspy fidelity gap (ADR-0002, amended).
+- **Transforms** on CPU use a specialised rayon `R * p + t` kernel instead of
+  a general tensor matmul. Measured on this host, a plain loop does 10M
+  points in 23 ms where burn's matmul needs 173-273 ms; the degenerate
+  `[N,3] x [3,3]` shape wins nothing from a tiled kernel. (A 4x4 homogeneous
+  matmul is faster *inside* burn -- 173 ms vs 273 ms, since 4-wide suits the
+  kernel -- but only if points are stored pre-padded as PCL does; padding
+  packed (N,3) data per call costs more than it saves.)
+- **LAS reading** bulk-decodes the uncompressed point block in parallel
+  instead of materialising a `Point` struct per record. LAZ is unchanged,
+  since LASzip records have no fixed byte layout to slice.
 
-Coordinate values are not bit-identical to laspy: the f32 relative storage
-deviates by up to 3.0e-5 m at a +/-500 m extent, which is 3% of the default
-1 mm LAS scale step and well inside file quantization.
-
-Closing the gap is not yet scheduled work, but it has been profiled rather
-than guessed (see the profiling section of RFC-0001). In short: the `.xyz`
-readback is already within 12% of what numpy needs for the same f32->f64
-conversion, so it is the *materialization itself* that must be designed away
-by holding f64 coordinates for CPU-resident clouds; voxel downsampling costs
-~855 ns per voxel because it allocates a `Vec` per voxel instead of sorting
-once like PCL; and LAS reading spends ~139 ns per point building a `Point`
-struct where laspy memcpys the record block.
+What remains: the `.xyz` readback still copies (143 ms at 10M points), which
+is now the dominant term in a transform. Open3D pays nothing there because it
+returns a view into its own f64 buffer. Doing the same safely needs
+copy-on-write coordinate storage so an outstanding view cannot dangle when a
+setter replaces the buffer; that is deferred, not done.
 
 ## Documentation layout
 

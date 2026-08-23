@@ -3,14 +3,11 @@
 //! trait objects, replacing the pre-redesign `Box<dyn DownsampleStrategy>`
 //! (superseded; see git history).
 
-use crate::backend::B;
 use crate::cloud::PointCloud;
 use crate::error::{Error, Result};
-use burn::tensor::{Tensor, TensorData};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
-use std::collections::HashMap;
 
 /// Per-voxel representative-selection strategy. Variants carry their own
 /// parameters, so the "pick the middle index and call it random" bug from
@@ -25,48 +22,62 @@ pub enum DownsampleStrategy {
 }
 
 impl PointCloud {
+    /// Group points into voxels and keep one representative per voxel.
+    ///
+    /// Grouping is sort-based (PCL's approach), not hash-based: a linear
+    /// voxel key is computed per point, point indices are sorted once by
+    /// that key, and the sorted order is scanned in a single pass where
+    /// each run of equal keys is a voxel. This avoids a `HashMap<[i64; 3],
+    /// Vec<u32>>` -- one heap allocation per voxel, a separately sorted key
+    /// vector, and a second hash lookup per voxel during selection -- which
+    /// made grouping cost scale with voxel count rather than point count.
     pub fn voxel_downsample(&self, voxel_size: f64, strategy: DownsampleStrategy) -> Result<Self> {
         // NaN-explicit: rejects NaN as well as zero/negative sizes.
         if voxel_size.is_nan() || voxel_size <= 0.0 {
             return Err(Error::value("voxel_size must be positive"));
         }
-        let (Some(coords), true) = (self.coords_rel.as_ref(), self.len > 0) else {
+        if self.len == 0 {
             return Ok(self.clone());
+        }
+
+        // Borrow the absolute f64 coordinates without copying when the
+        // cloud is CPU-resident; otherwise materialize once. Either way
+        // the offset is already folded in, so voxel keys need no further
+        // offset arithmetic.
+        let owned_xyz;
+        let xyz: &[f64] = match self.coords_f64_slice() {
+            Some(slice) => slice,
+            None => match self.coords_f64() {
+                Some(v) => {
+                    owned_xyz = v;
+                    &owned_xyz
+                }
+                None => return Ok(self.clone()),
+            },
         };
 
         let n = self.len;
-        let rel: Vec<f32> = coords
-            .to_data()
-            .to_vec::<f32>()
-            .expect("coordinate tensor is always f32");
-        let offset = self.offset;
 
-        // Voxel index per point, offset-anchored: floor((offset+rel)/voxel_size).
+        // Voxel key per point, offset-anchored: floor(coord / voxel_size).
         // Computed in parallel: point clouds are typically large enough for
         // this per-point work to be worth spreading across cores.
         let keys: Vec<[i64; 3]> = (0..n)
             .into_par_iter()
             .map(|i| {
-                let mut key = [0i64; 3];
-                for (axis, k) in key.iter_mut().enumerate() {
-                    let coord = offset[axis] + rel[i * 3 + axis] as f64;
-                    *k = (coord / voxel_size).floor() as i64;
-                }
-                key
+                let base = i * 3;
+                std::array::from_fn(|axis| (xyz[base + axis] / voxel_size).floor() as i64)
             })
             .collect();
 
-        let mut groups: HashMap<[i64; 3], Vec<u32>> = HashMap::new();
-        for (i, key) in keys.into_iter().enumerate() {
-            groups.entry(key).or_default().push(i as u32);
-        }
+        // Sort point indices by voxel key once. No per-voxel allocation:
+        // every voxel's members end up as a contiguous slice of `order`.
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        order.par_sort_unstable_by_key(|&i| keys[i as usize]);
 
-        // Iterate voxels in a canonical sorted order so that `Random`'s rng
-        // consumption -- and therefore its output -- is deterministic given
-        // a seed, independent of HashMap iteration order.
-        let mut sorted_keys: Vec<[i64; 3]> = groups.keys().copied().collect();
-        sorted_keys.sort_unstable();
-
+        // Iterate voxels in ascending key order -- the same order the
+        // sorted-key-vector approach produced -- so that `Random`'s rng
+        // consumption, and therefore its output, stays deterministic given
+        // a seed, independent of any hashing.
         let mut rng = match strategy {
             DownsampleStrategy::Random { seed: Some(seed) } => ChaCha8Rng::seed_from_u64(seed),
             DownsampleStrategy::Random { seed: None } => {
@@ -75,43 +86,37 @@ impl PointCloud {
             DownsampleStrategy::NearestToCentroid => ChaCha8Rng::seed_from_u64(0), // unused
         };
 
-        let mut selected: Vec<u32> = Vec::with_capacity(sorted_keys.len());
-        for key in &sorted_keys {
-            let indices = &groups[key];
+        // Single pass over the sorted order: each run of equal keys is one
+        // voxel, its members a slice `&order[start..end]` -- no lookup, no
+        // allocation beyond the output vector itself.
+        let mut selected: Vec<u32> = Vec::new();
+        let mut start = 0;
+        while start < order.len() {
+            let key = keys[order[start] as usize];
+            let mut end = start + 1;
+            while end < order.len() && keys[order[end] as usize] == key {
+                end += 1;
+            }
+            let run = &order[start..end];
             let pick = match strategy {
-                DownsampleStrategy::Random { .. } => indices[rng.random_range(0..indices.len())],
-                DownsampleStrategy::NearestToCentroid => nearest_to_centroid(&rel, offset, indices),
+                DownsampleStrategy::Random { .. } => run[rng.random_range(0..run.len())],
+                DownsampleStrategy::NearestToCentroid => nearest_to_centroid(xyz, run),
             };
             selected.push(pick);
+            start = end;
         }
         selected.sort_unstable();
 
-        // Gather: rebuild coords from selected rows on the same device, and
-        // gather every dimension column by the same indices.
-        let m = selected.len();
-        let mut new_rel = Vec::with_capacity(m * 3);
-        for &idx in &selected {
-            let base = idx as usize * 3;
-            new_rel.extend_from_slice(&rel[base..base + 3]);
-        }
-        let new_tensor = Tensor::<B, 2>::from_data(TensorData::new(new_rel, [m, 3]), &self.device);
-
-        let mut result = self.clone();
-        result.coords_rel = Some(new_tensor);
-        result.len = m;
-        for (_, dim) in result.dims.iter_mut() {
-            *dim = dim.gather(&selected);
-        }
-        Ok(result)
+        self.with_gathered_rows(&selected)
     }
 }
 
-fn nearest_to_centroid(rel: &[f32], offset: [f64; 3], indices: &[u32]) -> u32 {
+fn nearest_to_centroid(xyz: &[f64], indices: &[u32]) -> u32 {
     let mut centroid = [0.0f64; 3];
     for &idx in indices {
         let base = idx as usize * 3;
         for axis in 0..3 {
-            centroid[axis] += offset[axis] + rel[base + axis] as f64;
+            centroid[axis] += xyz[base + axis];
         }
     }
     let count = indices.len() as f64;
@@ -122,18 +127,18 @@ fn nearest_to_centroid(rel: &[f32], offset: [f64; 3], indices: &[u32]) -> u32 {
     *indices
         .iter()
         .min_by(|&&a, &&b| {
-            let da = squared_distance(rel, offset, a, centroid);
-            let db = squared_distance(rel, offset, b, centroid);
+            let da = squared_distance(xyz, a, centroid);
+            let db = squared_distance(xyz, b, centroid);
             da.partial_cmp(&db).expect("distances are always finite")
         })
         .expect("a voxel group is never empty")
 }
 
-fn squared_distance(rel: &[f32], offset: [f64; 3], idx: u32, centroid: [f64; 3]) -> f64 {
+fn squared_distance(xyz: &[f64], idx: u32, centroid: [f64; 3]) -> f64 {
     let base = idx as usize * 3;
     (0..3)
         .map(|axis| {
-            let coord = offset[axis] + rel[base + axis] as f64;
+            let coord = xyz[base + axis];
             (coord - centroid[axis]).powi(2)
         })
         .sum()

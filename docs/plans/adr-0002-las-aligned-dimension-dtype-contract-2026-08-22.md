@@ -63,20 +63,35 @@ including LAS ExtraBytes and Parquet round-trips (ADR-0004).
 
 ### Coordinate storage
 
-`x/y/z` are **promised** as f8 but **stored** as LAS itself stores them:
+*Amended 2026-08-23 after profiling; see RFC-0001.* Coordinates have two
+representations, chosen by device placement:
 
 ```
-coords_rel : Tensor<Dispatch, 2> (f32, on the compute device)  # [N, 3]
-offset     : [f64; 3]                                          # per-cloud anchor
-scales     : [f64; 3]                                          # kept for LAS write fidelity
+// CPU-resident (the common case)
+coords : Vec<f64>            // absolute, row-major [N, 3]
+
+// Device-resident (wgpu/CUDA have no f64)
+coords : Tensor<Dispatch, 2> // f32, relative to `offset`
+offset : [f64; 3]            // per-cloud anchor, also the LAS header origin
+scales : [f64; 3]            // kept for LAS write fidelity
 ```
 
-- Getter: `x = offset[0] + f64(coords_rel[:, 0])`.
-- Ingest: offset defaults to the first point (LAS ingest uses the header
-  offset), so relative magnitudes stay small and f32 error stays below LAS
-  quantization for typical extents.
-- Translation mutates only `offset` (exact f64); rotation/matmul runs on the
-  f32 tensor.
+- **CPU:** `x/y/z` are stored exactly as promised, f64. Reads are a copy of
+  the buffer, with no conversion. `x` is bit-identical to what laspy returns
+  for the same file.
+- **Device:** `x = offset[0] + f64(coords[:, 0])`. `offset` anchors near the
+  data (ingest uses the first point; LAS ingest uses the header offset), so
+  f32 error stays below LAS quantization for typical extents.
+- Moving between devices re-encodes. GPU -> CPU widens back to f64 but does
+  not recover rounding already incurred.
+- Transforms: CPU runs a specialised `R * p + t` kernel over rayon in f64
+  (not a matmul -- see RFC-0001); device applies the rotation as an f32
+  tensor matmul. In both cases `offset` moves as `R * offset + t` in f64.
+
+The original design stored f32-relative coordinates unconditionally. That
+was measured to be the dominant cost of every coordinate read (an f32 -> f64
+widening pass over the whole cloud) *and* the source of a 3.03e-5 m deviation
+from laspy. Holding f64 on CPU removed both at once.
 
 ### Attribute storage
 
@@ -87,12 +102,16 @@ them (open question in RFC-0001 §5).
 
 ## Consequences
 
-**Positive:** laspy users keep their dtypes; LAS files round-trip losslessly;
-exact integer equality works for classification-based selection (future
-selection ops); GPU compute stays f32 without breaking the f8 promise.
+**Positive:** laspy users keep their dtypes; LAS files round-trip losslessly,
+coordinates included and bit-exact on CPU; exact integer equality works for
+classification-based selection (future selection ops); GPU compute still gets
+f32 without breaking the f8 promise.
 
-**Negative:** getters materialize (copy) output arrays — the zero-copy of a
-raw f32 view is gone by design, since promised dtypes differ from storage;
-RGB consumers expecting u8 must shift (`>> 8`) themselves; two storage planes
-(tensor coords vs CPU columns) must stay length-synchronized, enforced by a
-single mutation choke point in `cloud/mod.rs`.
+**Negative:** two coordinate representations exist, and code touching them
+must handle both (confined to `cloud/mod.rs`, `cloud/transform.rs`, and
+`cloud/voxel.rs`); a CPU cloud costs 8 bytes per ordinate rather than 4;
+coordinate getters still copy, because handing out a borrowed view would
+dangle as soon as a setter replaced the buffer (a copy-on-write `Arc` would
+fix this and is deferred); RGB consumers expecting u8 must shift (`>> 8`)
+themselves; the two planes (coords vs columns) must stay length-synchronized,
+enforced by a single mutation choke point in `cloud/mod.rs`.

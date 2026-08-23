@@ -401,3 +401,77 @@ as a strided view, doing no per-point work whatsoever.
    the raw record block and slicing columns out of it.
 4. **Specialize the small-matrix transform** rather than calling a general
    matmul for a `[N,3] x [3,3]`.
+
+---
+
+## Finding appended 2026-08-23 (optimisation pass: all four fixes landed)
+
+All four recommended fixes were implemented and measured. Same host and
+methodology (warmup + median of 3).
+
+| Operation | Points | before | after | vs baseline before -> after |
+|---|---|---|---|---|
+| `voxel_downsample` (0.15) | 1M | 1.11 s | 0.11 s | Open3D 1.8x slower -> **4.9x faster** |
+| `voxel_downsample` (0.15) | 10M | 11.96 s | 1.60 s | Open3D 1.3x slower -> **6.2x faster** |
+| `voxel_downsample` (leaf 1.0) | 2M | 1.82 s | 0.28 s | PCL 10.5x slower -> 1.6x slower |
+| `transform` | 10M | 112 ms | 46 ms | Open3D 4.0x slower -> 1.6x slower |
+| LAS read + xyz | 2M | 0.25 s | 0.07 s | laspy 7.1x slower -> 1.9x slower |
+| coordinate deviation vs laspy | 2M | 3.03e-5 m | **0.0** | approximate -> bit-exact |
+
+What each fix actually bought:
+
+1. **f64 coordinates on CPU (ADR-0002 amended).** `.xyz` readback at 10M went
+   366 ms -> 143 ms by deleting the f32 -> f64 widening pass, and coordinates
+   became bit-identical to laspy. The remaining 143 ms is the buffer copy.
+2. **Sort-based voxel grouping.** The per-voxel cost that made runtime scale
+   with voxel count is gone; this is what turned a 1.3-1.8x deficit against
+   Open3D into a 4.9-6.2x lead.
+3. **Bulk LAS decode.** 155 -> 78 ns/point on xyz-only files (2.0x), 203 ->
+   108 ns/point with gps/rgb/intensity (1.9x). The LAZ path is deliberately
+   untouched: LASzip records are entropy-coded, so there is no fixed byte
+   layout to slice, and the crate already parallelises that decompression.
+4. **Specialised transform kernel.** CPU transforms run a rayon `R * p + t`
+   loop instead of a tensor matmul: 142 ms -> 47 ms at 10M points.
+
+A fifth, unplanned fix came out of the measurements: `rigid_transform` and
+the voxel gather both began with `self.clone()`, copying the entire
+coordinate buffer (240 MB at 10M points) only to overwrite it. A
+`clone_without_coords` helper removed that, worth ~140 ms per 10M-point
+transform on its own.
+
+### Answering the 4x4-vs-3x3 question that prompted fix #4
+
+Measured directly on 10M points, since the theory cuts both ways (3x3+t does
+less arithmetic and moves 3 components instead of 4; 4-wide vectors suit SIMD
+and matmul kernels better):
+
+| variant | time |
+|---|---|
+| burn 3x3 matmul + broadcast add | 272.9 ms |
+| burn 4x4 homogeneous, already padded | 173.1 ms |
+| burn 4x4 including the (N,3)->(N,4) pad | 280.6 ms |
+| plain 3x3 + t, scalar | 75.7 ms |
+| plain 4x4 homogeneous, scalar | 110.0 ms |
+| plain 3x3 + t, rayon | 23.3 ms |
+| plain 3x3 + t, rayon, f64 | 38.6 ms |
+
+The answer depends on storage layout. *Inside a matmul kernel* 4x4 wins
+(173 vs 273 ms) because the 4-wide inner dimension suits it and the
+translation fuses in -- but only when points are already stored padded, as
+PCL's 16-byte `PointXYZ` is. Paying the pad on packed (N,3) storage costs
+more than the win (280.6 vs 272.9 ms). *Outside* a matmul, 3x3+t is clearly
+better (75.7 vs 110.0 ms scalar): the kernel is memory-bound and 4x4 moves
+33% more bytes for arithmetic that is free either way.
+
+The larger conclusion was that neither matmul formulation is competitive: a
+plain rayon loop beats burn's best by 7.4x, and lands on Open3D's 28 ms. So
+fix #4 became "do not call matmul on CPU" rather than "pick a better matmul".
+
+### Remaining gap
+
+`transform` at 10M is 46 ms against Open3D's 28 ms, and the `.xyz` copy
+(143 ms standalone) dominates any read. Open3D pays nothing there because it
+hands back a view into its own f64 buffer. Matching that safely requires
+copy-on-write coordinate storage (`Arc<Vec<f64>>` plus a numpy base object)
+so an outstanding view cannot dangle when a setter replaces the buffer.
+Deferred deliberately: it adds unsafe surface for the last ~140 ms.

@@ -164,3 +164,17 @@ pub fn device_name(device: &DispatchDevice) -> &'static str {
         _ => "unknown",
     }
 }
+
+/// Whether coordinates on `device` can be held as plain CPU-resident f64
+/// (ADR-0002). True for the pure-Rust CPU backend and for LibTorch, whose
+/// tensors live in host memory unless a CUDA device is requested; false for
+/// wgpu/CUDA devices, which have no f64 path and need the f32-relative
+/// representation.
+pub fn is_cpu_device(device: &DispatchDevice) -> bool {
+    match device {
+        #[cfg(feature = "cpu")]
+        DispatchDevice::Flex(_) => true,
+        #[allow(unreachable_patterns)]
+        _ => false,
+    }
+}
