@@ -23,6 +23,12 @@ cuda = ["burn/cuda"]
 # the way every other backend feature does. Fixed upstream in 0.22
 # (burn/tch -> burn-core/tch -> burn-tensor/tch = burn-dispatch/tch), so drop
 # `dep:burn-dispatch` when upgrading.
+# No local PyTorch needed: burn-tch enables `tch/download-libtorch`, so
+# torch-sys fetches the libtorch 2.9.0 it pins. Do NOT set
+# LIBTORCH_USE_PYTORCH (a repo `.cargo/config.toml` used to): it diverts the
+# build to the active interpreter's torch and fails on any runner without a
+# PyTorch 2.9.0 -- either "no cxx11 abi returned by python" when torch is
+# absent, or C++ errors in libtch against a newer torch.
 torch = ["burn/tch", "dep:burn-dispatch"]
 
 [dependencies]

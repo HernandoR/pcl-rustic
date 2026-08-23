@@ -50,7 +50,7 @@ fmt:
 
 # Lint code (Rust and Python)
 lint:
-    cargo clippy -- -D warnings
+    cargo clippy --all-targets --all-features -- -D warnings
     uv run ruff check
 
 # Run pre-commit on all files
