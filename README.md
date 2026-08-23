@@ -233,8 +233,14 @@ Coordinate values are not bit-identical to laspy: the f32 relative storage
 deviates by up to 3.0e-5 m at a +/-500 m extent, which is 3% of the default
 1 mm LAS scale step and well inside file quantization.
 
-Closing the CPU gap is not yet scheduled work; the readback path is the
-first place to look.
+Closing the gap is not yet scheduled work, but it has been profiled rather
+than guessed (see the profiling section of RFC-0001). In short: the `.xyz`
+readback is already within 12% of what numpy needs for the same f32->f64
+conversion, so it is the *materialization itself* that must be designed away
+by holding f64 coordinates for CPU-resident clouds; voxel downsampling costs
+~855 ns per voxel because it allocates a `Vec` per voxel instead of sorting
+once like PCL; and LAS reading spends ~139 ns per point building a `Point`
+struct where laspy memcpys the record block.
 
 ## Documentation layout
 

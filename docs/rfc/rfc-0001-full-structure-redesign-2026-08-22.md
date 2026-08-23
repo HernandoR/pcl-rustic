@@ -319,3 +319,85 @@ depending on whether the previous result buffer is still live when the next is
 allocated. That sensitivity is itself an argument for the ADR-0002 follow-up:
 holding f64 coordinates directly for CPU-resident clouds would remove the
 allocation, the conversion, and the laspy fidelity gap together.
+
+---
+
+## Finding appended 2026-08-23 (profiling the performance gap)
+
+Each gap was traced to a specific cause, measured rather than assumed. All
+figures from the 96-thread EPYC 7R13, warmup + median of 3.
+
+### 1. Transform, 4x slower than Open3D -- two separate causes
+
+Splitting the op instruments cleanly:
+
+| Stage | 1M | 10M |
+|---|---|---|
+| submit (burn matmul) | 12.5 ms | 142 ms |
+| readback (`.xyz`) | 21.4 ms | 366 ms |
+| readback share | 63% | 72% |
+
+**Readback is not our inefficiency.** numpy performing the identical work --
+`rel.astype(np.float64) + offset` on a (10M, 3) f32 array -- takes 328 ms, and
+merely allocating and copying the resulting 240 MB f64 array takes 274 ms. Our
+366 ms is within ~12% of that floor. The conversion loop is fine; the cost is
+*materializing a 240 MB f64 array at all*. Open3D pays zero here because it
+stores f64 natively and `np.asarray(pcd.points)` is a view. This cannot be
+optimized away, only designed away.
+
+**The submit stage is genuine inefficiency.** numpy's f32 `[10M,3] x [3,3]`
+matmul takes 40 ms; burn's takes 142 ms, 3.5x off. The shape is degenerate for
+a general tiled matmul kernel (K = N = 3), so the generic path wins nothing.
+
+### 2. Voxel downsample, 10.5x slower than PCL -- per-voxel allocation
+
+Holding the point count fixed at 2M and varying only the leaf size isolates
+the cause: cost tracks the number of *voxels*, not points.
+
+| leaf | voxels out | time |
+|---|---|---|
+| 50.0 | 3,212 | 87 ms |
+| 10.0 | 152,841 | 272 ms |
+| 3.0 | 1,264,053 | 1196 ms |
+| 1.0 | 1,955,826 | 1754 ms |
+
+Marginal cost is roughly 855 ns per voxel. `voxel_downsample` builds a
+`HashMap<[i64; 3], Vec<u32>>`, so each voxel costs a heap-allocated `Vec`, a
+hash insert, a slot in a separately sorted key vector, and a *second* hash
+lookup during selection. At leaf 1.0 that is ~1.95M allocations and ~4M hashes
+for a cloud of 2M points. PCL instead computes a linear voxel index per point,
+sorts once, and scans runs -- no per-voxel allocation at all.
+
+`NEAREST_TO_CENTROID` costs only ~290 ms more than `RANDOM` at leaf 1.0, so
+the strategy's extra distance pass is a minor contributor; the grouping
+structure is the problem.
+
+### 3. LAS read, 7.1x slower than laspy -- per-point struct materialization
+
+| file | ours | laspy |
+|---|---|---|
+| xyz only (40 MB) | 139.4 ns/pt | 12.8 ns/pt |
+| xyz+gps+rgb+intensity (68 MB) | 179.9 ns/pt | 24.2 ns/pt |
+
+Four extra dimensions add only ~40 ns/pt on our side, so the column pushes are
+not the bottleneck -- the ~139 ns/pt floor is. `reader.points()` in the `las`
+crate yields a fully materialized `Point` per record (`Option<Color>`,
+`Option<f64>`, a `Classification` enum, wrapped in a `Result`). laspy memcpys
+the raw record block into a numpy structured array and exposes each dimension
+as a strided view, doing no per-point work whatsoever.
+
+### Recommended fixes, in order of payoff
+
+1. **Store f64 coordinates for CPU-resident clouds** (ADR-0002 amendment).
+   Removes the 240 MB materialization *and* the 3.03e-5 m laspy fidelity gap
+   in one change; `.xyz` becomes a view. Keep the f32-relative representation
+   for GPU devices only. This is the single highest-value change and needs an
+   ADR revision, not a patch.
+2. **Replace the voxel hash-of-vecs with sort-based grouping.** Compute a
+   linear key per point, sort `(key, index)` pairs once, scan runs. Removes
+   ~1.95M allocations, the separate key sort, and the second lookup. Local
+   change, no design impact.
+3. **Bulk-decode LAS records** instead of iterating `reader.points()`, reading
+   the raw record block and slicing columns out of it.
+4. **Specialize the small-matrix transform** rather than calling a general
+   matmul for a `[N,3] x [3,3]`.
