@@ -24,19 +24,37 @@ pub type B = burn::Dispatch;              // backend type in every tensor signat
 pub use burn::DispatchDevice;             // runtime device selection
 ```
 
-Cargo features (crate → burn passthrough):
+Backends compiled into every wheel, and how:
 
-| crate feature | burn feature | default | provides |
+| device name | burn feature | how it is enabled | provides |
 |---|---|---|---|
-| `cpu` | `flex` | yes | pure-Rust CPU device (see note) |
-| `vulkan` | `vulkan` | yes | wgpu/Vulkan GPU device |
-| `cuda` | `cuda` | no | native CUDA device |
-| `torch` | `tch` | no | LibTorch device (tensors are torch tensors) |
+| `cpu` | `flex` | always | pure-Rust CPU device (see note) |
+| `metal` | `metal` | macOS targets | wgpu/Metal GPU device (MSL) |
+| `vulkan` | `vulkan` | non-macOS targets | wgpu/Vulkan GPU device (SPIR-V) |
+| `cuda` | `cuda` | `cuda` cargo feature | native CUDA device |
+| `torch` | `tch` | `torch` cargo feature | LibTorch device (tensors are torch tensors) |
 
 burn is depended on with `default-features = false` and
-`features = ["std", "dispatch"]`. wgpu flavors are mutually exclusive in
-burn-dispatch; `vulkan` is our pick for Linux/Windows portability. The
-0.20-era `candle-core` pin and the `ndarray` feature are dropped.
+`features = ["std", "dispatch", "flex", <one wgpu flavor>]`. The 0.20-era
+`candle-core` pin and the `ndarray` feature are dropped.
+
+**The wgpu flavor is selected by target, not by cargo feature.** burn-dispatch's
+`metal`, `vulkan`, and `webgpu` features are mutually exclusive, and combining
+them does not fail the build: `burn-dispatch-0.21.0/build.rs:23-29` emits a
+`cargo:warning` and then sets *none* of the `wgpu_*` cfgs, silently producing a
+binary with no GPU backend at all. A cargo feature is therefore the wrong
+mechanism — any caller, or a plain `--all-features`, could combine them. Two
+`[target.'cfg(...)'.dependencies]` tables in Cargo.toml pin `metal` on macOS
+and `vulkan` elsewhere. macOS has no native Vulkan driver (only MoltenVK,
+which we do not ship), so Metal is the only GPU option there.
+
+Consequently `cpu` and `vulkan` are no longer cargo features: the CPU fallback
+and the platform's GPU backend are always compiled in, so every wheel carries a
+GPU backend for its own platform and device choice stays purely a runtime
+decision. The `target_os` gates in `src/backend.rs` mirror the manifest, and a
+mismatch is a compile error rather than a dead device, because burn-dispatch
+cfg-gates the `DispatchDevice` variants themselves (`Metal` on `wgpu_metal`,
+`Vulkan` on `wgpu_vulkan`).
 
 `cpu` is backed by `burn/flex`, not the CubeCL `burn/cpu` backend: the
 latter compiles cleanly but aborts at runtime on tall matmuls. A
@@ -59,9 +77,16 @@ so the phantom dependency is dropped when we move to 0.22.
 
 - `default_device()` probes at runtime: GPU variant if an adapter initializes,
   else CPU. Probing failure degrades gracefully — never a panic at import.
-- Python: `pcl_rustic.available_devices() -> list[str]`,
-  `pc.device -> str`, `pc.to_device("cpu" | "vulkan" | "cuda" | "torch")`.
-  Names map 1:1 to `DispatchDevice` variants compiled in.
+- Python: `pcl_rustic.available_devices() -> list[str]`, `pc.device -> str`,
+  `pc.to_device("cpu" | "metal" | "vulkan" | "cuda" | "torch")`. Names map 1:1
+  to `DispatchDevice` variants compiled in; a device belonging to another
+  target (`metal` on Linux, `vulkan` on macOS) reports "not compiled into this
+  build", while a compiled device with no adapter reports "not usable on this
+  machine".
+- `is_cpu_device()` decides coordinate residency (ADR-0002): true for `flex`,
+  and for LibTorch **only on its CPU device**, whose tensors are host memory
+  and support f64. Metal, Vulkan, CUDA, and LibTorch's own MPS/CUDA/Vulkan
+  devices take the f32-relative representation.
 
 ### Torch-tensor compatibility
 

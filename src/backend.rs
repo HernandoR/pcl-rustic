@@ -1,14 +1,25 @@
 //! Runtime device selection for the unified `burn::Dispatch` backend
 //! (ADR-0001).
 //!
-//! Feature mapping (see Cargo.toml):
+//! Device roster (see Cargo.toml for the wiring):
 //!
-//! | crate feature | burn feature | `DispatchDevice` variant |
-//! |---|---|---|
-//! | `cpu`    | `burn/flex`   | `Flex` (pure-Rust CPU backend) |
-//! | `vulkan` | `burn/vulkan` | `Vulkan` (wgpu/Vulkan) |
-//! | `cuda`   | `burn/cuda`   | `Cuda` |
-//! | `torch`  | `burn/tch`    | `LibTorch` |
+//! | device name | burn feature | `DispatchDevice` variant | availability |
+//! |---|---|---|---|
+//! | `cpu`    | `burn/flex`   | `Flex` (pure-Rust CPU backend) | always |
+//! | `metal`  | `burn/metal`  | `Metal` (wgpu/Metal, MSL) | macOS targets |
+//! | `vulkan` | `burn/vulkan` | `Vulkan` (wgpu/Vulkan, SPIR-V) | non-macOS targets |
+//! | `cuda`   | `burn/cuda`   | `Cuda` | `cuda` feature |
+//! | `torch`  | `burn/tch`    | `LibTorch` | `torch` feature |
+//!
+//! `cpu` and exactly one wgpu flavour are always compiled in, so every wheel
+//! carries a GPU backend for its platform and the choice of device stays a
+//! runtime one. `metal` and `vulkan` are gated on `target_os` rather than on
+//! cargo features because burn-dispatch's wgpu flavours are mutually
+//! exclusive *and* fail silently when combined -- see the Cargo.toml comment.
+//! The `target_os` gates here therefore mirror the manifest exactly: on macOS
+//! `DispatchDevice::Vulkan` does not exist (burn-dispatch cfg-gates the
+//! variant on `wgpu_vulkan`), so a mismatch is a compile error, not a
+//! silently dead device.
 //!
 //! `cpu` maps to `burn/flex` (the pure-Rust CPU backend). The CubeCL
 //! `burn/cpu` backend was tried first per ADR-0001: it compiles cleanly, but
@@ -47,13 +58,15 @@ use crate::error::{Error, Result};
 /// The single tensor backend used throughout the crate (ADR-0001).
 pub type B = Dispatch;
 
-/// Attempts to construct the compiled `DispatchDevice` for a given name.
-/// Returns `None` when the corresponding cargo feature was not compiled in.
+/// Attempts to construct the `DispatchDevice` for a given name. Returns
+/// `None` when the device is not part of this build: either its cargo
+/// feature is off, or it belongs to another target's wgpu flavour.
 fn construct(name: &str) -> Option<DispatchDevice> {
     match name {
-        #[cfg(feature = "cpu")]
         "cpu" => Some(DispatchDevice::Flex(Default::default())),
-        #[cfg(feature = "vulkan")]
+        #[cfg(target_os = "macos")]
+        "metal" => Some(DispatchDevice::Metal(Default::default())),
+        #[cfg(not(target_os = "macos"))]
         "vulkan" => Some(DispatchDevice::Vulkan(Default::default())),
         #[cfg(feature = "cuda")]
         "cuda" => Some(DispatchDevice::Cuda(Default::default())),
@@ -64,12 +77,14 @@ fn construct(name: &str) -> Option<DispatchDevice> {
 }
 
 /// Device names in GPU-first preference order, used by `default_device`.
-/// `cpu` is intentionally last: it is the universal fallback.
-const PREFERENCE_ORDER: &[&str] = &["cuda", "vulkan", "torch", "cpu"];
+/// `cpu` is intentionally last: it is the universal fallback. `metal` and
+/// `vulkan` are both listed because only one of them can construct on any
+/// given target; the other is filtered out by `construct`.
+const PREFERENCE_ORDER: &[&str] = &["cuda", "metal", "vulkan", "torch", "cpu"];
 
-/// Every device name this build knows how to construct, regardless of
-/// whether it was actually compiled in (`construct` filters that).
-const ALL_NAMES: &[&str] = &["cpu", "vulkan", "cuda", "torch"];
+/// Every device name any build knows how to construct, regardless of whether
+/// this one actually can (`construct` filters that).
+const ALL_NAMES: &[&str] = &["cpu", "metal", "vulkan", "cuda", "torch"];
 
 /// Attempts a trivial tensor round-trip on `device`, catching the panics
 /// that GPU backends raise when no matching adapter is present at runtime.
@@ -99,10 +114,10 @@ static DEFAULT_DEVICE: LazyLock<DispatchDevice> = LazyLock::new(|| {
             }
         }
     }
-    // `cpu` is a default crate feature; if every candidate above
-    // failed to construct (all features disabled) there is no
-    // sensible fallback left, and this indicates a broken build.
-    construct("cpu").expect("no dispatch backend feature was compiled in")
+    // `cpu` is always compiled in (burn's `flex` feature is pinned by both
+    // target dependency tables), so this is unreachable unless the manifest
+    // is broken.
+    construct("cpu").expect("the flex CPU backend was not compiled in")
 });
 
 /// The default compute device: the first GPU variant compiled in whose
@@ -126,9 +141,9 @@ pub fn available_devices() -> Vec<String> {
         .collect()
 }
 
-/// Parses a device name (`"cpu" | "vulkan" | "cuda" | "torch"`) into a
-/// `DispatchDevice`, probing it (except `cpu`) so a caller asking for a
-/// specific device gets a clear error instead of a later panic.
+/// Parses a device name (one of [`ALL_NAMES`]) into a `DispatchDevice`,
+/// probing it (except `cpu`) so a caller asking for a specific device gets a
+/// clear error instead of a later panic.
 pub fn parse_device_name(name: &str) -> Result<DispatchDevice> {
     if !ALL_NAMES.contains(&name) {
         return Err(Error::value(format!(
@@ -152,9 +167,10 @@ pub fn parse_device_name(name: &str) -> Result<DispatchDevice> {
 /// The canonical name for a `DispatchDevice`, as returned by `PointCloud.device`.
 pub fn device_name(device: &DispatchDevice) -> &'static str {
     match device {
-        #[cfg(feature = "cpu")]
         DispatchDevice::Flex(_) => "cpu",
-        #[cfg(feature = "vulkan")]
+        #[cfg(target_os = "macos")]
+        DispatchDevice::Metal(_) => "metal",
+        #[cfg(not(target_os = "macos"))]
         DispatchDevice::Vulkan(_) => "vulkan",
         #[cfg(feature = "cuda")]
         DispatchDevice::Cuda(_) => "cuda",
@@ -166,14 +182,18 @@ pub fn device_name(device: &DispatchDevice) -> &'static str {
 }
 
 /// Whether coordinates on `device` can be held as plain CPU-resident f64
-/// (ADR-0002). True for the pure-Rust CPU backend and for LibTorch, whose
-/// tensors live in host memory unless a CUDA device is requested; false for
-/// wgpu/CUDA devices, which have no f64 path and need the f32-relative
+/// (ADR-0002). True for the pure-Rust CPU backend, and for LibTorch only on
+/// its CPU device, whose tensors live in host memory and support f64. False
+/// for wgpu (Metal/Vulkan) and CUDA devices, and for LibTorch's own MPS,
+/// CUDA, and Vulkan devices: those have no f64 path and need the f32-relative
 /// representation.
 pub fn is_cpu_device(device: &DispatchDevice) -> bool {
     match device {
-        #[cfg(feature = "cpu")]
         DispatchDevice::Flex(_) => true,
+        #[cfg(feature = "torch")]
+        DispatchDevice::LibTorch(device) => {
+            matches!(device, burn::backend::libtorch::LibTorchDevice::Cpu)
+        }
         #[allow(unreachable_patterns)]
         _ => false,
     }

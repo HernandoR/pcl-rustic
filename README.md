@@ -107,15 +107,30 @@ not installed, and only `to_torch()` / torch-tensor arguments need it.
 ```python
 from pcl_rustic import available_devices, default_device
 
-available_devices()  # e.g. ["cpu", "vulkan"], or add "cuda"/"torch" if built with those features
+available_devices()  # e.g. ["cpu", "vulkan"] on Linux, ["cpu", "metal"] on macOS
 default_device()     # picks a GPU variant if one initializes, else "cpu"
 
 pc.device                  # -> str
 pc_gpu = pc.to_device("vulkan")
 ```
 
-Device names map 1:1 to the backends the wheel was compiled with (`cpu`,
-`vulkan` on by default; `cuda` and `torch` are opt-in Cargo features).
+Every wheel carries the CPU backend plus its platform's GPU backend, so the
+device is chosen at runtime, never at build time:
+
+| device | availability |
+|---|---|
+| `cpu` | always (pure-Rust `flex` backend) |
+| `metal` | macOS wheels |
+| `vulkan` | Linux and Windows wheels |
+| `cuda` | opt-in `cuda` Cargo feature |
+| `torch` | opt-in `torch` Cargo feature |
+
+macOS gets Metal rather than Vulkan because it has no native Vulkan driver.
+The two are mutually exclusive inside burn, so the choice is pinned per target
+in `Cargo.toml` instead of being a Cargo feature — see
+`docs/plans/adr-0001-unified-dispatch-backend-torch-interop-2026-08-22.md`.
+Asking for a device from another platform raises `ValueError` ("not compiled
+into this build"); asking for one whose adapter is missing raises `OSError`.
 
 ## Dtype contract
 

@@ -10,13 +10,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [features]
-default = ["cpu", "vulkan"]
-# Pure-Rust CPU backend (burn-flex). The CubeCL `burn/cpu` backend compiles
-# fine but overflows the stack of an internal cubecl worker thread on tall
-# matmuls (a [N,3]x[3,3] f32 matmul aborts for N >= ~5.6M; N = 5M is fine).
-# Reproduces on burn 0.21.0 and 0.22.0-pre.2. Upstream: tracel-ai/burn#5419.
-cpu = ["burn/flex"]
-vulkan = ["burn/vulkan"]
+default = []
 cuda = ["burn/cuda"]
 # See src/backend.rs for why `torch` also pulls in `burn-dispatch` directly:
 # burn 0.21's `tch` feature does not forward to burn-dispatch's `tch` feature
@@ -25,15 +19,13 @@ cuda = ["burn/cuda"]
 # `dep:burn-dispatch` when upgrading.
 # No local PyTorch needed: burn-tch enables `tch/download-libtorch`, so
 # torch-sys fetches the libtorch 2.9.0 it pins. Do NOT set
-# LIBTORCH_USE_PYTORCH (a repo `.cargo/config.toml` used to): it diverts the
-# build to the active interpreter's torch and fails on any runner without a
-# PyTorch 2.9.0 -- either "no cxx11 abi returned by python" when torch is
-# absent, or C++ errors in libtch against a newer torch.
+# LIBTORCH_USE_PYTORCH: it diverts the build to the active interpreter's torch
+# and fails on any runner without a PyTorch 2.9.0 -- either "no cxx11 abi
+# returned by python" when torch is absent, or C++ errors in libtch against a
+# newer torch.
 torch = ["burn/tch", "dep:burn-dispatch"]
 
 [dependencies]
-# Unified runtime-dispatch tensor backend (ADR-0001).
-burn = { version = "0.21", default-features = false, features = ["std", "dispatch"] }
 # Phantom dependency, only pulled in by the `torch` feature (see above and
 # src/backend.rs): forces burn-dispatch's own `tch` feature on via Cargo
 # feature unification with the `burn-dispatch` crate pulled in transitively
@@ -59,6 +51,39 @@ thiserror = "2.0"
 rayon = "1.10"
 rand = "0.9"
 rand_chacha = "0.9"
+
+# Unified runtime-dispatch tensor backend (ADR-0001). Two backends are always
+# compiled in, and `src/backend.rs` picks between them at runtime:
+#
+# - `flex`, the pure-Rust CPU fallback. Not the CubeCL `burn/cpu` backend: that
+#   one compiles cleanly but overflows the stack of an internal cubecl worker
+#   thread on tall matmuls (a [N,3]x[3,3] f32 matmul aborts for N >= ~5.6M;
+#   N = 5M is fine). Reproduces on burn 0.21.0 and 0.22.0-pre.2. Upstream:
+#   tracel-ai/burn#5419.
+# - one wgpu flavour, chosen per target because burn-dispatch's `metal`,
+#   `vulkan`, and `webgpu` features are mutually exclusive. Enabling two does
+#   not fail the build: burn-dispatch's build.rs emits a `cargo:warning` and
+#   then sets *none* of the `wgpu_*` cfgs, silently dropping every GPU backend
+#   (burn-dispatch-0.21.0/build.rs:23-29). So the choice is made here, once per
+#   target, and is deliberately not a cargo feature a caller could combine.
+#
+# macOS has no native Vulkan driver (only MoltenVK, which we do not ship), so
+# Metal is the only GPU option there; Vulkan covers Linux and Windows.
+[target.'cfg(target_os = "macos")'.dependencies]
+burn = { version = "0.21", default-features = false, features = [
+    "std",
+    "dispatch",
+    "flex",
+    "metal",
+] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+burn = { version = "0.21", default-features = false, features = [
+    "std",
+    "dispatch",
+    "flex",
+    "vulkan",
+] }
 
 # laz's GPS-time compressor relies on wrapping integer arithmetic and panics
 # under debug overflow checks ("attempt to subtract with overflow" at

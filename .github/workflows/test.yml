@@ -55,11 +55,35 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  # macOS carries a different GPU backend (Metal, not Vulkan; see Cargo.toml's
+  # per-target burn dependency), so its `target_os = "macos"` arms in
+  # src/backend.rs are invisible to the Linux clippy run above. Default
+  # features only: the `cuda`/`torch` arms are target-independent and already
+  # covered there.
+  clippy-macos:
+    name: Clippy / macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          add-job-id-key: "false"
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
   # Run tests on multiple platforms and Python versions
   test:
     name: Test / ${{ matrix.platform.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.platform.os }}
-    needs: lint
+    needs: [lint, clippy-macos]
     strategy:
       fail-fast: false
       matrix:
