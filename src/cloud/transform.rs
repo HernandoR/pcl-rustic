@@ -16,7 +16,7 @@
 use crate::backend::B;
 use crate::cloud::{Coords, PointCloud};
 use crate::error::{Error, Result};
-use burn::tensor::{Tensor, TensorData};
+use burn::tensor::Tensor;
 use rayon::prelude::*;
 
 impl PointCloud {
@@ -89,16 +89,14 @@ impl PointCloud {
                 Coords::Cpu(out)
             }
             Coords::Device(tensor) => {
-                // Row-major R^T as f32: element (i, j) of R^T is rotation[j][i].
-                let mut r_t = [0f32; 9];
-                for i in 0..3 {
-                    for j in 0..3 {
-                        r_t[i * 3 + j] = rotation[j][i] as f32;
-                    }
-                }
-                let r_t_tensor =
-                    Tensor::<B, 2>::from_data(TensorData::new(r_t.to_vec(), [3, 3]), &self.device);
-                Coords::Device(Box::new(tensor.clone().matmul(r_t_tensor)))
+                // `TensorData: From<[[E; B]; A]>` takes the f8 rotation as-is
+                // at shape [3, 3]; `from_data` narrows it to the backend's
+                // default float dtype (f32, matching the coordinate tensor),
+                // and `transpose` supplies the R^T that right-multiplying
+                // `[N, 3]` rows needs. No hand-reordered literal, so a
+                // transposition typo is not expressible.
+                let r_t = Tensor::<B, 2>::from_data(*rotation, &self.device).transpose();
+                Coords::Device(Box::new(tensor.clone().matmul(r_t)))
             }
         });
 
