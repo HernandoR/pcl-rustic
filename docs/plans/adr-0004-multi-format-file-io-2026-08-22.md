@@ -40,6 +40,22 @@ Options:
 - `delimiter: str` (single ASCII char, default `","`) — CSV only.
 - LAZ compression is implied by the `.laz` extension; no `compress` flag.
 
+The LAS read path has two branches (*added 2026-08-23 after profiling; see
+RFC-0001*):
+- **Uncompressed `.las`:** the point block is read in one `read_exact` and
+  decoded in parallel straight from the bytes at each field's known offset,
+  bypassing the crate's per-record `Point` materialization (`Option`s, a
+  `Classification` enum, a `Result` per point). Measured 155 -> 78 ns/point
+  on xyz-only files. Bit-field and classification semantics are delegated to
+  the crate's own `Flags` methods so the decoding stays identical, including
+  the raw-code-12-means-overlap quirk noted below.
+- **Compressed `.laz`:** unchanged per-record iteration. LASzip records are
+  entropy-coded, so there is no fixed byte layout to slice, and the crate
+  already parallelizes decompression via `laz-parallel`.
+
+The consequence users see is that `.laz` reads stay materially slower than
+`.las` reads; that is inherent to the container, not a missing optimisation.
+
 Known `las`-crate (0.9) limitations, accepted for v1 and documented in
 `src/io/las.rs`:
 - Extra dimensions are not written as LAS ExtraBytes (the crate exposes no

@@ -77,6 +77,23 @@ Two complementary planes (RFC-0001 §2.3):
    `burn-tch`, adding a `LibTorch` dispatch device so burn ops execute on
    libtorch (including its CUDA allocator).
 
+### What burn is, and is not, used for
+
+*Added 2026-08-23 after profiling; see RFC-0001.* `Dispatch` is the device
+and tensor abstraction, not a mandate that every kernel go through burn.
+Where a hand-written kernel is materially faster on CPU, we use it:
+
+- Coordinate transforms on CPU-resident clouds run a rayon `R * p + t` loop
+  in f64 (`cloud/transform.rs`), not a tensor matmul. For the degenerate
+  `[N,3] x [3,3]` shape a tiled matmul kernel wins nothing: measured at 10M
+  points, burn needs 173-273 ms where the plain loop needs 23 ms.
+- Voxel binning and LAS decoding are likewise plain Rust over rayon.
+
+burn owns device-resident data and every operation on it, which is what the
+GPU story depends on. The rule of thumb: tensor ops for anything that must
+run on an accelerator, hand-written kernels for CPU-only hot paths where a
+measurement justifies it.
+
 ## Consequences
 
 **Positive:** one wheel serves GPU-less and GPU hosts (the exact #4415

@@ -51,6 +51,18 @@ enum (replacing the former `Box<dyn DownsampleStrategy>`): variants carry
 their parameters (`Random { seed }`, `NearestToCentroid`), and the
 middle-index pseudo-"random" bug dies with the old code.
 
+`voxel.rs` groups points by sorting, not hashing (*added 2026-08-23 after
+profiling; see RFC-0001*): compute a voxel key per point, sort the point
+indices by that key once, then scan runs of equal keys. The earlier
+`HashMap<[i64; 3], Vec<u32>>` cost a heap allocation per voxel and made
+runtime scale with voxel count rather than point count. Two properties this
+choice must preserve:
+
+- Runs are visited in ascending key order, so `Random { seed }` consumes its
+  rng deterministically and the same seed reproduces the same output.
+- Selected indices are sorted ascending before the gather, so the output
+  preserves input order.
+
 ### Dev workflow
 
 - `pyproject.toml`: `readme = "README.md"`; runtime deps = numpy only;
