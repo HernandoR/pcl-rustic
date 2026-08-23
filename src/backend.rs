@@ -18,6 +18,7 @@
 //! 2.3s); the crash is not avoidable by growing the caller's stack, since the
 //! overflowing thread is spawned internally. Same failure on burn 0.21.0 and
 //! 0.22.0-pre.2. `flex` runs the identical [10M,3] workload in 0.22s.
+//! Upstream issue: <https://github.com/tracel-ai/burn/issues/5419>.
 //!
 //! `torch` also declares a direct optional dependency on `burn-dispatch`
 //! itself (see Cargo.toml). This works around a wiring gap in burn 0.21:

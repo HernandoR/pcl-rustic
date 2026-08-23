@@ -45,7 +45,8 @@ an internal cubecl worker thread for N ≥ ~5.6M (N = 5M completes in 2.3s);
 growing the caller's stack does not help, because the overflowing thread is
 spawned internally. The same failure reproduces on burn 0.21.0 and
 0.22.0-pre.2, and `flex` runs the identical [10M,3] workload in 0.22s.
-Revisit when burn-cpu stabilizes.
+Upstream issue: <https://github.com/tracel-ai/burn/issues/5419>. Revisit when
+burn-cpu stabilizes.
 
 The `torch` feature additionally declares a direct optional dependency on
 `burn-dispatch` with its `tch` feature, because burn 0.21's `tch` feature is

@@ -14,7 +14,7 @@ default = ["cpu", "vulkan"]
 # Pure-Rust CPU backend (burn-flex). The CubeCL `burn/cpu` backend compiles
 # fine but overflows the stack of an internal cubecl worker thread on tall
 # matmuls (a [N,3]x[3,3] f32 matmul aborts for N >= ~5.6M; N = 5M is fine).
-# Reproduces on burn 0.21.0 and 0.22.0-pre.2 -- see src/backend.rs / ADR-0001.
+# Reproduces on burn 0.21.0 and 0.22.0-pre.2. Upstream: tracel-ai/burn#5419.
 cpu = ["burn/flex"]
 vulkan = ["burn/vulkan"]
 cuda = ["burn/cuda"]
@@ -57,7 +57,7 @@ rand_chacha = "0.9"
 # laz's GPS-time compressor relies on wrapping integer arithmetic and panics
 # under debug overflow checks ("attempt to subtract with overflow" at
 # laz-0.12.2/src/las/gps.rs:581, reproduced by writing .laz with spread-out
-# gps_time values). Match its release semantics in dev builds until it is
-# fixed upstream.
+# gps_time values). Match its release semantics in dev builds until the
+# upstream fix lands. Upstream: laz-rs/laz-rs#72.
 [profile.dev.package.laz]
 overflow-checks = false

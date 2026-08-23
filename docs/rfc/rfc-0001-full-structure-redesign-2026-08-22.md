@@ -163,7 +163,7 @@ reports:
    it by enlarging their own stack. A `[N,3] × [3,3]` f32 matmul succeeds at
    N = 5,000,000 (2.3 s) and aborts at N = 5,592,405 and above, after ~170 s
    of runaway work. Reproduces identically on burn 0.21.0 and 0.22.0-pre.2;
-   `flex` runs N = 10,000,000 in 0.22 s. Worth filing.
+   `flex` runs N = 10,000,000 in 0.22 s. Filed as tracel-ai/burn#5419.
 
 3. **laz GPS-time subtraction overflow** — no open issue, but strong
    precedent: laz-rs #13 fixed the same class of panic in `rgb.rs`, and #33
@@ -171,4 +171,6 @@ reports:
    wrap and that debug-build overflow panics are found and fixed by
    converting them to `wrapping_*`. In `laz-0.12.2/src/las/gps.rs` line 556
    already uses `this_val.value.wrapping_sub(...)`, while line 581 performs
-   the same subtraction with a raw `-`. One-line fix; worth filing.
+   the same subtraction with a raw `-`. One-line fix, filed as laz-rs/laz-rs#72
+   with a pure-`laz` reproducer (500 points, panics in debug, clean in
+   release).
