@@ -183,28 +183,40 @@ Numbers vary by host; run `just bench` locally.
 
 ### Compared to Open3D, PCL, and laspy
 
-`just bench-compare` measures against Open3D 0.19 and laspy 2.7;
-`just bench-pcl` builds a small C++ harness (`bench/pcl_cpp/`) and measures
-against PCL 1.14. Current standing on a 96-thread EPYC 7R13, stated plainly:
+`just bench-compare` measures against Open3D 0.19 and laspy 2.7 (both in the
+`test` dependency group); `just bench-pcl` additionally builds a small C++
+harness (`bench/pcl_cpp/`) and measures against PCL 1.14. Every baseline is
+optional and skips when absent.
+
+Methodology: one warmup call, then the median of three timed runs, applied
+identically to every engine including the C++ harness. Without the warmup,
+pcl-rustic's first op in a process pays a one-time kernel-init cost (~55 ms)
+and results depend on test ordering.
+
+Current standing on a 96-thread EPYC 7R13:
 
 | Operation | Points | pcl-rustic | baseline | Result |
 |---|---|---|---|---|
-| `voxel_downsample` (0.15) | 1M | 0.91 s | Open3D 0.66 s | 1.4x slower |
-| `voxel_downsample` (0.15) | 10M | 11.3 s | Open3D 11.7 s | ~parity |
-| `voxel_downsample` (leaf 1.0) | 2M | 2.21 s | PCL C++ 0.19 s | 11.9x slower |
-| `transform` (4x4, warm) | 1M | 12 ms | Open3D 3 ms | 4x slower |
-| `transform` (4x4, warm) | 10M | 481 ms | Open3D 29 ms | 17x slower |
-| `transform` (4x4) | 2M | 0.14 s | PCL C++ 0.02 s | 7.6x slower |
-| LAS read + xyz | 2M | 0.25 s | laspy 0.04 s | 6.8x slower |
+| `voxel_downsample` (0.15) | 1M | 1.11 s | Open3D 0.63 s | 1.8x slower |
+| `voxel_downsample` (0.15) | 10M | 11.96 s | Open3D 9.31 s | 1.3x slower |
+| `voxel_downsample` (leaf 1.0) | 2M | 1.82 s | PCL C++ 0.17 s | 10.5x slower |
+| `transform` (4x4) | 1M | 12 ms | Open3D 3 ms | 4.1x slower |
+| `transform` (4x4) | 10M | 112 ms | Open3D 28 ms | 4.0x slower |
+| `transform` (4x4) | 2M | 24 ms | PCL C++ 4 ms | 5.7x slower |
+| LAS read + xyz | 2M | 0.25 s | laspy 0.04 s | 7.1x slower |
 
 **pcl-rustic is not currently faster than Open3D or PCL on CPU.** Two
 structural reasons, both consequences of ADR-0002 rather than incidental
 inefficiency:
 
 - Coordinates are stored as f32 relative to an f64 offset, so every `.xyz`
-  read materializes and converts a fresh (N, 3) f8 array. At 10M points that
-  readback is 362 ms of the 481 ms transform. Open3D stores f64 natively and
-  returns a zero-copy view; PCL uses f32 throughout with no Python boundary.
+  read materializes and converts a fresh (N, 3) f8 array. Instrumented, that
+  readback is 63% of a 1M transform and 72% of a 10M one. It is also a large
+  transient allocation, which makes the timing allocator-sensitive: the same
+  10M transform measures anywhere from 112 ms to 509 ms depending on whether
+  the previous result buffer is still alive when the next is allocated.
+  Open3D stores f64 natively and returns a zero-copy view; PCL uses f32
+  throughout with no Python boundary.
 - Open3D's `voxel_down_sample` and PCL's `VoxelGrid` both average each voxel;
   our `NEAREST_TO_CENTROID` additionally finds the nearest existing point.
 

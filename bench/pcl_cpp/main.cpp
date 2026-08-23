@@ -5,7 +5,7 @@
 //
 //   int64 n, then n * 3 little-endian float64 (x, y, z interleaved)
 //
-// Usage: pcl_bench <data-file> <leaf-size>
+// Usage: pcl_bench <data-file> <leaf-size> [repeat]
 //
 // Timings cover the operation only; building the pcl::PointCloud from the
 // file happens outside every timed region, matching how the Python side
@@ -14,6 +14,7 @@
 // Note on types: PCL's PointXYZ stores f32 (padded to 16 bytes), Open3D
 // stores f64, and pcl-rustic stores f32 relative to an f64 offset. PCL is
 // therefore doing the least precise arithmetic of the three.
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -33,11 +34,12 @@ static double seconds_since(const Clock::time_point& start) {
 
 int main(int argc, char** argv) {
   if (argc < 3) {
-    std::fprintf(stderr, "usage: %s <data-file> <leaf-size>\n", argv[0]);
+    std::fprintf(stderr, "usage: %s <data-file> <leaf-size> [repeat]\n", argv[0]);
     return 2;
   }
   const char* path = argv[1];
   const float leaf = std::strtof(argv[2], nullptr);
+  const int repeat = argc > 3 ? std::atoi(argv[3]) : 3;
 
   std::ifstream in(path, std::ios::binary);
   if (!in) {
@@ -63,14 +65,26 @@ int main(int argc, char** argv) {
     (*cloud)[i].z = static_cast<float>(raw[i * 3 + 2]);
   }
 
+  // Methodology matches the Python side: one warmup run, then the median of
+  // `repeat` timed runs.
+  auto median = [](std::vector<double> v) {
+    std::sort(v.begin(), v.end());
+    return v[v.size() / 2];
+  };
+
   // --- voxel grid -----------------------------------------------------
   pcl::PointCloud<pcl::PointXYZ> down;
   pcl::VoxelGrid<pcl::PointXYZ> grid;
   grid.setInputCloud(cloud);
   grid.setLeafSize(leaf, leaf, leaf);
-  auto t0 = Clock::now();
-  grid.filter(down);
-  const double voxel_secs = seconds_since(t0);
+  grid.filter(down);  // warmup
+  std::vector<double> voxel_times;
+  for (int i = 0; i < repeat; ++i) {
+    auto t0 = Clock::now();
+    grid.filter(down);
+    voxel_times.push_back(seconds_since(t0));
+  }
+  const double voxel_secs = median(voxel_times);
 
   // PCL's VoxelGrid indexes voxels with a 32-bit integer and silently
   // returns the input untouched when the grid would overflow it. Report the
@@ -84,9 +98,14 @@ int main(int argc, char** argv) {
   m(0, 3) = 1.0f;  m(1, 3) = 2.0f;  m(2, 3) = 3.0f;
 
   pcl::PointCloud<pcl::PointXYZ> transformed;
-  t0 = Clock::now();
-  pcl::transformPointCloud(*cloud, transformed, m);
-  const double transform_secs = seconds_since(t0);
+  pcl::transformPointCloud(*cloud, transformed, m);  // warmup
+  std::vector<double> transform_times;
+  for (int i = 0; i < repeat; ++i) {
+    auto t0 = Clock::now();
+    pcl::transformPointCloud(*cloud, transformed, m);
+    transform_times.push_back(seconds_since(t0));
+  }
+  const double transform_secs = median(transform_times);
 
   std::printf("n=%lld voxel_secs=%.6f voxel_out=%zu voxel_refused=%d transform_secs=%.6f\n",
               static_cast<long long>(n), voxel_secs, down.size(),

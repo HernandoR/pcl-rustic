@@ -258,3 +258,64 @@ Two things the PCL comparison established that the Open3D one did not:
 This strengthens the case for the ADR-0002 follow-up already noted above: if
 CPU-resident clouds held f64 coordinates directly, both the readback cost and
 the laspy fidelity gap would disappear together.
+
+---
+
+## Finding appended 2026-08-23 (comparison consolidated into Python)
+
+At the owner's direction the comparison now lives in one Python module,
+`tests/test_benchmark_compare.py`, driven by the `test` dependency group
+(`uv add open3d --group test`). The separate PCL test module was folded in.
+
+`uv add python-pcl --group test` was attempted and **cannot work on Python
+3.12.** Three successive real failures, each further into the build:
+
+1. `ModuleNotFoundError: No module named 'Cython'` (undeclared build dep);
+2. after adding Cython, `No module named 'numpy'` (same);
+3. after adding both, `NameError: name 'vtk_include_dir' is not defined`.
+
+Failure 3 is terminal: `python-pcl`'s `setup.py` selects VTK paths from
+hard-coded `pcl_version` branches for `-1.7`, `-1.8`, and `-1.9`, and falls
+through to `else: pass` for anything else. Ubuntu 24.04 ships PCL 1.14, so no
+branch matches and the variable is never bound. There is no environment
+override, and even a patched `setup.py` would still be compiling 2018-era
+Cython sources against removed CPython 3.12 C-API. `pclpy` is likewise
+unusable (`requires_python == 3.6.*`, Windows-only wheel). PCL therefore stays
+a C++ harness invoked from the Python test, which keeps the whole comparison
+runnable and reported from Python.
+
+Two measurement defects were found and fixed while consolidating, both of
+which had been producing misleading numbers:
+
+- **Order-dependent timings.** pcl-rustic's first op in a process pays a
+  one-time kernel-init cost of roughly 55 ms, so whichever comparison ran
+  first was penalised. The earlier "17x slower on a 10M transform" figure was
+  this artifact. With one warmup plus the median of three runs -- now applied
+  uniformly, including inside the C++ harness -- the 10M transform is 4.0x
+  slower, matching the 1M result (4.1x) instead of contradicting it.
+- **In-place mutation under repetition.** Open3D's `transform` mutates the
+  cloud, so warmup-plus-repeat applied the matrix four times cumulatively and
+  broke the numerical cross-check. Timing is unaffected (identical work per
+  call), so the fix was to keep the repeated timing and move the correctness
+  assertion onto freshly built clouds.
+
+Corrected standing (96-thread EPYC 7R13, warmup + median of 3):
+
+| Operation | Points | pcl-rustic | baseline | Result |
+|---|---|---|---|---|
+| `voxel_downsample` (0.15) | 1M | 1.11 s | Open3D 0.63 s | 1.8x slower |
+| `voxel_downsample` (0.15) | 10M | 11.96 s | Open3D 9.31 s | 1.3x slower |
+| `voxel_downsample` (leaf 1.0) | 2M | 1.82 s | PCL 0.17 s | 10.5x slower |
+| `transform` | 1M | 12 ms | Open3D 3 ms | 4.1x slower |
+| `transform` | 10M | 112 ms | Open3D 28 ms | 4.0x slower |
+| `transform` | 2M | 24 ms | PCL 4 ms | 5.7x slower |
+| LAS read + xyz | 2M | 0.25 s | laspy 0.04 s | 7.1x slower |
+
+The readback conclusion holds and is now quantified as a share rather than a
+single figure: the `.xyz` materialization is 63% of a 1M transform and 72% of
+a 10M one. It is a large transient allocation, so the absolute number is
+allocator-sensitive -- the same 10M transform measures 112 ms to 509 ms
+depending on whether the previous result buffer is still live when the next is
+allocated. That sensitivity is itself an argument for the ADR-0002 follow-up:
+holding f64 coordinates directly for CPU-resident clouds would remove the
+allocation, the conversion, and the laspy fidelity gap together.

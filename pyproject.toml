@@ -39,7 +39,12 @@ docs = [
     "mkdocs-material>=9.5.0",
     "mkdocs-git-revision-date-localized-plugin>=1.2.0",
 ]
-bench = [
+# Comparison-benchmark baselines. PCL itself is absent on purpose: it has no
+# working Python binding on 3.12 (`python-pcl`'s newest release is a 2018
+# cp27/cp35 alpha whose setup.py only knows PCL 1.7-1.9; `pclpy` pins
+# ==3.6.*). The PCL baseline is the C++ harness in bench/pcl_cpp, driven from
+# tests/test_benchmark_compare.py -- see `just bench-pcl`.
+test = [
     "open3d>=0.19",
     "laspy[lazrs]>=2.5",
 ]
@@ -51,3 +56,5 @@ markers = [
     "slow: marks tests that take a long time to run (large point clouds)",
     "bench: marks throughput/performance benchmark tests",
 ]
+
+

@@ -29,7 +29,7 @@ bench: build
 
 # Run benchmarks including the Open3D / laspy comparison
 bench-compare: build
-    uv sync --group bench
+    uv sync --group test
     uv run pytest -m bench -s
 
 # Build the PCL C++ baseline harness and run the PCL comparison.
@@ -37,7 +37,7 @@ bench-compare: build
 bench-pcl: build
     cmake -S bench/pcl_cpp -B bench/pcl_cpp/build -DCMAKE_BUILD_TYPE=Release
     cmake --build bench/pcl_cpp/build -j
-    uv run pytest tests/test_benchmark_pcl.py -m bench -s
+    uv run pytest tests/test_benchmark_compare.py -m bench -s
 
 # Run Rust unit tests
 test-rust:
