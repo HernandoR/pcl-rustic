@@ -221,3 +221,40 @@ Open questions this raises for a future RFC:
   coordinate representations.
 - Should `.xyz` cache its materialized array and invalidate on mutation?
   Repeated reads currently re-convert every time.
+
+---
+
+## Finding appended 2026-08-23 (PCL C++ baseline)
+
+PCL is now benchmarked too, via a C++ harness (`bench/pcl_cpp/`, `just
+bench-pcl`) rather than a Python binding, since none exists for 3.12. The
+harness reads the same f64 xyz dump the Python benchmarks write, so all three
+engines see byte-identical input.
+
+PCL 1.14, 2M points, 96-thread EPYC 7R13:
+
+| Operation | pcl-rustic | PCL C++ | Result |
+|---|---|---|---|
+| `voxel_downsample` (leaf 1.0) | 2.21 s | 0.19 s | 11.9x slower |
+| `transform` (4x4) | 0.14 s | 0.02 s | 7.6x slower |
+
+Same conclusion as the Open3D comparison, more starkly: our CPU compute is
+not competitive. PCL uses f32 end to end with no Python boundary and no
+readback conversion.
+
+Two things the PCL comparison established that the Open3D one did not:
+
+- **Output parity.** At a leaf size PCL accepts, PCL's `VoxelGrid` and our
+  `NEAREST_TO_CENTROID` return the *same* point count (1,955,826 of
+  2,000,000), which is a useful correctness cross-check on our voxel
+  binning, independent of the timing.
+- **PCL has a voxel-count ceiling we do not.** `VoxelGrid` indexes voxels
+  with a 32-bit integer and silently returns the input *unfiltered* when the
+  grid would overflow it. Measured: leaf 0.15 over a +/-500 m extent gives
+  back all 2,000,000 points untouched. `tests/test_benchmark_pcl.py`
+  asserts this refusal explicitly so the no-op can never be scored as a fast
+  run, and so the behavioural difference stays documented.
+
+This strengthens the case for the ADR-0002 follow-up already noted above: if
+CPU-resident clouds held f64 coordinates directly, both the readback cost and
+the laspy fidelity gap would disappear together.

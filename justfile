@@ -32,6 +32,13 @@ bench-compare: build
     uv sync --group bench
     uv run pytest -m bench -s
 
+# Build the PCL C++ baseline harness and run the PCL comparison.
+# Requires PCL dev headers (Debian/Ubuntu: apt install cmake libpcl-dev).
+bench-pcl: build
+    cmake -S bench/pcl_cpp -B bench/pcl_cpp/build -DCMAKE_BUILD_TYPE=Release
+    cmake --build bench/pcl_cpp/build -j
+    uv run pytest tests/test_benchmark_pcl.py -m bench -s
+
 # Run Rust unit tests
 test-rust:
     cargo test --release

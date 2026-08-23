@@ -26,3 +26,4 @@ reports/
 target/
 
 **/*.so
+bench/pcl_cpp/build/

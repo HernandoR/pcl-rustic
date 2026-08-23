@@ -181,35 +181,45 @@ release build, `just bench`):
 
 Numbers vary by host; run `just bench` locally.
 
-### Compared to Open3D and laspy
+### Compared to Open3D, PCL, and laspy
 
-`just bench-compare` measures the same operations against Open3D 0.19 and
-laspy 2.7 on the same host. Current standing, stated plainly:
+`just bench-compare` measures against Open3D 0.19 and laspy 2.7;
+`just bench-pcl` builds a small C++ harness (`bench/pcl_cpp/`) and measures
+against PCL 1.14. Current standing on a 96-thread EPYC 7R13, stated plainly:
 
 | Operation | Points | pcl-rustic | baseline | Result |
 |---|---|---|---|---|
 | `voxel_downsample` (0.15) | 1M | 0.91 s | Open3D 0.66 s | 1.4x slower |
 | `voxel_downsample` (0.15) | 10M | 11.3 s | Open3D 11.7 s | ~parity |
+| `voxel_downsample` (leaf 1.0) | 2M | 2.21 s | PCL C++ 0.19 s | 11.9x slower |
 | `transform` (4x4, warm) | 1M | 12 ms | Open3D 3 ms | 4x slower |
 | `transform` (4x4, warm) | 10M | 481 ms | Open3D 29 ms | 17x slower |
+| `transform` (4x4) | 2M | 0.14 s | PCL C++ 0.02 s | 7.6x slower |
 | LAS read + xyz | 2M | 0.25 s | laspy 0.04 s | 6.8x slower |
 
-**pcl-rustic is not currently faster than Open3D on CPU.** Two structural
-reasons, both consequences of ADR-0002 rather than incidental inefficiency:
+**pcl-rustic is not currently faster than Open3D or PCL on CPU.** Two
+structural reasons, both consequences of ADR-0002 rather than incidental
+inefficiency:
 
 - Coordinates are stored as f32 relative to an f64 offset, so every `.xyz`
   read materializes and converts a fresh (N, 3) f8 array. At 10M points that
   readback is 362 ms of the 481 ms transform. Open3D stores f64 natively and
-  returns a zero-copy view.
-- Open3D's `voxel_down_sample` averages each voxel; our
-  `NEAREST_TO_CENTROID` additionally finds the nearest existing point.
+  returns a zero-copy view; PCL uses f32 throughout with no Python boundary.
+- Open3D's `voxel_down_sample` and PCL's `VoxelGrid` both average each voxel;
+  our `NEAREST_TO_CENTROID` additionally finds the nearest existing point.
 
 What pcl-rustic does deliver against these baselines: exact dtype parity with
 laspy (`intensity` u2, `classification` u1, verified on a real LAS file), GPU
-eligibility for the coordinate plane, and LAS/LAZ I/O that Open3D lacks
-entirely. Coordinate values are not bit-identical to laspy -- the f32
-relative storage deviates by up to 3.0e-5 m at a +/-500 m extent, which is 3%
-of the default 1 mm LAS scale step and well inside file quantization.
+eligibility for the coordinate plane, LAS/LAZ I/O that Open3D lacks entirely,
+and a voxel grid without PCL's size limit -- PCL's `VoxelGrid` indexes voxels
+with a 32-bit integer and *silently returns the cloud unfiltered* when the
+grid overflows it (measured: leaf 0.15 over a +/-500 m extent returns all
+2,000,000 points untouched, where pcl-rustic downsamples normally). At a leaf
+size PCL accepts, the two agree exactly on output size (1,955,826 points).
+
+Coordinate values are not bit-identical to laspy: the f32 relative storage
+deviates by up to 3.0e-5 m at a +/-500 m extent, which is 3% of the default
+1 mm LAS scale step and well inside file quantization.
 
 Closing the CPU gap is not yet scheduled work; the readback path is the
 first place to look.
