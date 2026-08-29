@@ -175,6 +175,50 @@ class TestTransform:
         assert out is not pc
         np.testing.assert_allclose(pc.xyz, small_xyz, atol=1e-4)
 
+    def test_transform_inplace_matches_copying_path(
+        self, medium_xyz: np.ndarray
+    ) -> None:
+        """inplace=True must be a pure optimization: same values as the
+        copying path bit for bit, returning the mutated cloud itself, with
+        attribute dimensions untouched."""
+        matrix = np.eye(4)
+        matrix[:3, :3] = _rotation_matrix(0.3)
+        matrix[:3, 3] = [1.0, -2.0, 0.5]
+
+        pc = PointCloud.from_xyz(medium_xyz)
+        pc["intensity"] = (np.arange(len(pc)) % 60000).astype(np.uint16)
+        expected = pc.transform(matrix).xyz
+
+        out = pc.transform(matrix, inplace=True)
+        assert out is pc
+        np.testing.assert_array_equal(pc.xyz, expected)
+        assert pc["intensity"][1] == 1
+
+    def test_transform_inplace_on_every_available_device(
+        self, medium_xyz: np.ndarray
+    ) -> None:
+        import pcl_rustic
+
+        matrix = np.eye(4)
+        matrix[:3, :3] = _rotation_matrix(-0.7)
+        matrix[:3, 3] = [5.0, 5.0, -5.0]
+        for device in pcl_rustic.available_devices():
+            pc = PointCloud.from_xyz(medium_xyz).to_device(device)
+            expected = pc.transform(matrix).xyz
+            pc.transform(matrix, inplace=True)
+            np.testing.assert_array_equal(pc.xyz, expected, err_msg=device)
+
+    def test_rigid_transform_inplace_matches_copying_path(
+        self, medium_xyz: np.ndarray
+    ) -> None:
+        rotation = _rotation_matrix(1.1)
+        translation = np.array([0.5, -0.5, 2.0])
+        pc = PointCloud.from_xyz(medium_xyz)
+        expected = pc.rigid_transform(rotation, translation).xyz
+        out = pc.rigid_transform(rotation, translation, inplace=True)
+        assert out is pc
+        np.testing.assert_array_equal(pc.xyz, expected)
+
     def test_transform_rejects_bad_matrix_shape(self, small_xyz: np.ndarray) -> None:
         pc = PointCloud.from_xyz(small_xyz)
         with pytest.raises(TypeError):

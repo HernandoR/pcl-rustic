@@ -65,6 +65,13 @@ pc.classification = np.zeros(len(pc), dtype=np.uint8)
 
 pc_down = pc.voxel_downsample(0.15, strategy=DownsampleStrategy.NEAREST_TO_CENTROID)
 print(f"{len(pc):,} -> {len(pc_down):,} points")
+
+# transform / rigid_transform return a new cloud by default; inplace=True
+# mutates and returns the cloud itself (Open3D-style, chains), skipping the
+# attribute-column clone and coordinate allocation the copying path pays.
+T = np.eye(4)
+pc2 = pc.transform(T)            # new cloud
+pc.transform(T, inplace=True)    # mutates pc, returns pc
 ```
 
 ### laspy-style dimension access

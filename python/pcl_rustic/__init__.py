@@ -447,15 +447,34 @@ class PointCloud:
 
     # -- geometry ---------------------------------------------------------
 
-    def transform(self, matrix: ArrayLike) -> "PointCloud":
+    def transform(self, matrix: ArrayLike, inplace: bool = False) -> "PointCloud":
+        """Apply a 3x3 linear or 4x4 affine transform.
+
+        With `inplace=False` (default) returns a new cloud, leaving this one
+        untouched. With `inplace=True` mutates this cloud and returns it
+        (Open3D-style, so calls chain): coordinates are rewritten in their
+        existing buffer and attribute dimensions are not cloned, which
+        avoids the dominant costs of the copying path on large clouds.
+        """
         arr = _coerce(matrix, np.float64)
+        if inplace:
+            self._inner.transform_inplace(arr)
+            return self
         return self._wrap(self._inner.transform(arr))
 
     def rigid_transform(
-        self, rotation: ArrayLike, translation: ArrayLike
+        self,
+        rotation: ArrayLike,
+        translation: ArrayLike,
+        inplace: bool = False,
     ) -> "PointCloud":
+        """Apply a rotation (3x3) and translation (length 3). `inplace` as in
+        `transform`."""
         rot = _coerce(rotation, np.float64)
         trans = _coerce(translation, np.float64)
+        if inplace:
+            self._inner.rigid_transform_inplace(rot, trans)
+            return self
         return self._wrap(self._inner.rigid_transform(rot, trans))
 
     def voxel_downsample(

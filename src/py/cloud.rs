@@ -180,6 +180,17 @@ impl PyPointCloud {
         Ok(Self { inner })
     }
 
+    /// The `inplace=True` path of the Python-level `transform`: mutates this
+    /// cloud instead of building a new one (no dims clone, no coordinate
+    /// allocation). Split from `transform` so each Rust method has one
+    /// receiver and one return type; the Python wrapper dispatches.
+    fn transform_inplace(&mut self, matrix: &Bound<'_, PyAny>) -> PyResult<()> {
+        let (flat, side) = convert::matrix_from_pyobject(matrix)?;
+        self.inner
+            .transform_inplace(&flat, side)
+            .map_err(PyErr::from)
+    }
+
     fn rigid_transform(
         &self,
         rotation: &Bound<'_, PyAny>,
@@ -192,6 +203,19 @@ impl PyPointCloud {
             .rigid_transform(&rotation, &translation)
             .map_err(PyErr::from)?;
         Ok(Self { inner })
+    }
+
+    /// The `inplace=True` path of the Python-level `rigid_transform`.
+    fn rigid_transform_inplace(
+        &mut self,
+        rotation: &Bound<'_, PyAny>,
+        translation: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let rotation = convert::rotation_from_pyobject(rotation)?;
+        let translation = convert::translation_from_pyobject(translation)?;
+        self.inner
+            .rigid_transform_inplace(&rotation, &translation)
+            .map_err(PyErr::from)
     }
 
     #[pyo3(signature = (voxel_size, strategy=0, seed=None))]

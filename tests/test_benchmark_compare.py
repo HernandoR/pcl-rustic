@@ -26,11 +26,12 @@ Fairness notes -- read these before quoting any number
   extra distance pass. Output counts are printed so the difference is
   visible. This compares a user task, not an identical kernel.
 * **Transform result materialization differs.** Open3D transforms in place
-  over f64 and `np.asarray(pcd.points)` is a zero-copy view; PCL writes into
-  a second f32 cloud. pcl-rustic's ops are lazy, so its timed region must
-  include reading `.xyz` back, which allocates an (N, 3) f8 array and
-  converts from the f32 device tensor. pcl-rustic is charged for work the
-  others are not.
+  and `np.asarray(pcd.points)` / `.numpy()` are zero-copy views; PCL writes
+  into a second f32 cloud. pcl-rustic's transform therefore also runs
+  `inplace=True` in every comparison here (matching Open3D's semantics),
+  but its `.xyz` still allocates and copies a fresh array where Open3D
+  hands out a view -- pcl-rustic remains charged for work the others are
+  not wherever a timed region includes materialization.
 * **Element types differ by design.** PCL `PointXYZ` is f32, Open3D is f64,
   pcl-rustic is f32 relative to an f64 offset.
 * **The device is printed, and it changes the meaning of every row.** These
@@ -123,16 +124,20 @@ def _timed_transform(pc: PointCloud, matrix: np.ndarray) -> float:
     op + `.xyz`, matching what the CPU baselines are charged for (their
     results are host-resident and materialized by construction).
     """
+    # inplace=True on both branches: Open3D's transform is in place, so the
+    # copying path would charge pcl-rustic a dims clone and a coordinate
+    # allocation per call that the baseline never pays. Calls compose, as
+    # Open3D's do; per-call cost is unchanged.
     if GPU_MODE:
 
         def op() -> PointCloud:
-            out = pc.transform(matrix)
+            out = pc.transform(matrix, inplace=True)
             out.synchronize()
             return out
     else:
 
         def op() -> np.ndarray:  # type: ignore[misc]
-            return pc.transform(matrix).xyz
+            return pc.transform(matrix, inplace=True).xyz
 
     elapsed, _ = _timed(op)
     return elapsed
@@ -446,8 +451,9 @@ def test_four_way_transform_end_to_end(n_points: int) -> None:
     def pcl_op(device: str):
         pc = PointCloud.from_xyz(xyz).to_device(device)
 
+        # inplace, matching Open3D's semantics below; both compose.
         def op() -> np.ndarray:
-            return pc.transform(matrix).xyz
+            return pc.transform(matrix, inplace=True).xyz
 
         return op
 
