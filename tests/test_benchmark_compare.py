@@ -40,6 +40,15 @@ Fairness notes -- read these before quoting any number
   materialization ~260 ms, versus ~31 ms and ~161 ms on `cpu`. So the GPU
   can be *slower* here while doing the arithmetic ~100x faster. Compare
   like-for-like by pinning the device before drawing conclusions.
+* **The four-way end-to-end tests have their own semantics.** They compare
+  pcl-rustic and Open3D on CPU *and* GPU simultaneously, and every engine's
+  timed region is op + materializing the result positions to host numpy --
+  device readback deliberately included, unlike the compute-only GPU rows
+  above. Open3D's GPU column uses the tensor API (`open3d.t`) on CUDA, so it
+  exercises a different Open3D code path than the legacy-API CPU rows; its
+  `.numpy()` on a CPU tensor is a zero-copy view while pcl-rustic's `.xyz`
+  always allocates and copies, so pcl-rustic is charged for work Open3D is
+  not. Positions are float32 in every engine (pcl-rustic's default dtype).
 """
 
 from __future__ import annotations
@@ -53,10 +62,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 from conftest import resolve_bench_device
-from pcl_rustic import DownsampleStrategy, PointCloud, get_default_dtype
+from pcl_rustic import (
+    DownsampleStrategy,
+    PointCloud,
+    available_devices,
+    get_default_dtype,
+)
 
 o3d = pytest.importorskip("open3d", reason="open3d not installed")
 laspy = pytest.importorskip("laspy", reason="laspy not installed")
+o3c = o3d.core
 
 pytestmark = [pytest.mark.bench, pytest.mark.slow]
 
@@ -384,3 +399,113 @@ def test_vs_laspy_dtype_parity(tmp_path: Path) -> None:
         "dtype parity with laspy: intensity="
         f"{ours['intensity'].dtype}, classification={ours['classification'].dtype} (exact match)"
     )
+
+
+# -- four-way end-to-end: pcl-rustic vs Open3D, CPU vs GPU ----------------
+#
+# Unlike the rows above (which pin pcl-rustic to BENCH_DEVICE and, on GPU,
+# time compute only), these run every engine/device combination available on
+# this host side by side, and every timed region is END-TO-END: the op plus
+# materializing the result positions to host numpy, device readback
+# included. See the module docstring's fairness notes.
+
+
+def _four_way_engines() -> list[tuple[str, str, str]]:
+    """(label, engine, device) for every combination this host supports."""
+    engines = [("pcl-rustic[cpu]", "pcl", "cpu")]
+    gpus = [d for d in available_devices() if d != "cpu"]
+    if gpus:
+        engines.append((f"pcl-rustic[{gpus[0]}]", "pcl", gpus[0]))
+    engines.append(("open3d[cpu]", "o3d", "CPU:0"))
+    if o3c.cuda.is_available():
+        engines.append(("open3d[cuda]", "o3d", "CUDA:0"))
+    return engines
+
+
+def _o3d_t_cloud(xyz: np.ndarray, device: str):
+    return o3d.t.geometry.PointCloud(
+        o3c.Tensor(
+            np.ascontiguousarray(xyz, dtype=np.float32), device=o3c.Device(device)
+        )
+    )
+
+
+def _e2e_report(op: str, n: int, results: list[tuple[str, float]]) -> None:
+    base = dict(results).get("open3d[cpu]")
+    print(f"{op} end-to-end   n={n:>11,}   (op + host materialization)")
+    for label, secs in results:
+        vs = f"  {base / secs:5.2f}x vs open3d[cpu]" if base is not None else ""
+        print(f"  {label:<22} {secs:8.3f}s  {n / secs:>15,.0f} pts/s{vs}")
+
+
+@pytest.mark.parametrize("n_points", POINT_COUNTS)
+def test_four_way_transform_end_to_end(n_points: int) -> None:
+    xyz = _gaussian_xyz(n_points).astype(np.float32)
+    matrix = _transform_matrix()
+
+    def pcl_op(device: str):
+        pc = PointCloud.from_xyz(xyz).to_device(device)
+
+        def op() -> np.ndarray:
+            return pc.transform(matrix).xyz
+
+        return op
+
+    def o3d_op(device: str):
+        pcd = _o3d_t_cloud(xyz, device)
+        t = o3c.Tensor(matrix, device=o3c.Device(device))
+
+        # In place, so calls compose; per-call cost is unchanged and the
+        # math is cross-checked in test_vs_open3d_transform.
+        def op() -> np.ndarray:
+            return pcd.transform(t).point.positions.cpu().numpy()
+
+        return op
+
+    results = []
+    for label, engine, device in _four_way_engines():
+        secs, out = _timed(pcl_op(device) if engine == "pcl" else o3d_op(device))
+        assert out.shape == (n_points, 3)
+        results.append((label, secs))
+
+    _e2e_report("transform (4x4)", n_points, results)
+
+
+@pytest.mark.parametrize("n_points", POINT_COUNTS)
+def test_four_way_voxel_end_to_end(n_points: int) -> None:
+    # Voxel semantics differ (Open3D averages per voxel, pcl-rustic keeps
+    # the nearest existing point) -- this compares the user task, not an
+    # identical kernel; output counts are asserted close, not equal.
+    xyz = _gaussian_xyz(n_points).astype(np.float32)
+
+    def pcl_op(device: str):
+        pc = PointCloud.from_xyz(xyz).to_device(device)
+
+        def op() -> np.ndarray:
+            return pc.voxel_downsample(
+                VOXEL_SIZE, strategy=DownsampleStrategy.NEAREST_TO_CENTROID
+            ).xyz
+
+        return op
+
+    def o3d_op(device: str):
+        pcd = _o3d_t_cloud(xyz, device)
+
+        def op() -> np.ndarray:
+            return pcd.voxel_down_sample(VOXEL_SIZE).point.positions.cpu().numpy()
+
+        return op
+
+    results = []
+    counts = {}
+    for label, engine, device in _four_way_engines():
+        secs, out = _timed(pcl_op(device) if engine == "pcl" else o3d_op(device))
+        counts[label] = out.shape[0]
+        results.append((label, secs))
+
+    _e2e_report("voxel_downsample", n_points, results)
+    print(f"  output counts: { {k: f'{v:,}' for k, v in counts.items()} }")
+    # Same voxel grid resolution everywhere: counts agree within f32
+    # boundary-rounding noise.
+    low, high = min(counts.values()), max(counts.values())
+    assert high - low <= max(8, high // 100_000), f"voxel counts diverge: {counts}"
