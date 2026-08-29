@@ -229,9 +229,9 @@ jobs:
           - runner: windows-latest
             target: x64
             python_arch: x64
-          - runner: windows-latest
-            target: x86
-            python_arch: x86
+          # - runner: windows-latest
+          #   target: x86
+          #   python_arch: x86
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
