@@ -1,6 +1,6 @@
 //! PyO3 bindings root: the small top-level surface (`DownsampleStrategy`,
-//! `available_devices`, `default_device`) plus module wiring for `cloud` and
-//! `convert`. `PointCloud` itself lives in `cloud.rs`.
+//! `available_devices`, `default_device`, `device_report`) plus module wiring
+//! for `cloud` and `convert`. `PointCloud` itself lives in `cloud.rs`.
 
 pub mod cloud;
 pub mod convert;
@@ -32,4 +32,11 @@ pub fn available_devices() -> Vec<String> {
 #[pyfunction]
 pub fn default_device() -> String {
     backend::device_name(&backend::default_device()).to_string()
+}
+
+/// Returned as a list of `(name, status)` pairs rather than a dict so the
+/// roster order survives the boundary; the Python wrapper builds the dict.
+#[pyfunction]
+pub fn device_report() -> Vec<(String, String)> {
+    backend::device_report()
 }

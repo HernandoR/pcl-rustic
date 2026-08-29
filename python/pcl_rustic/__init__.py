@@ -15,6 +15,7 @@ from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 from . import _core
 from ._core import DownsampleStrategy, available_devices, default_device
+from ._core import device_report as _device_report
 
 __version__ = "0.1.0"
 
@@ -24,8 +25,30 @@ __all__ = [
     "read",
     "available_devices",
     "default_device",
+    "device_report",
     "STANDARD_DIMENSIONS",
 ]
+
+
+def device_report() -> dict[str, str]:
+    """Why each device is or is not usable on this machine.
+
+    Maps every device name this build knows about to ``"available"``, ``"not
+    compiled into this build"``, or ``"unavailable: <reason>"``. Unlike
+    :func:`available_devices`, which only reports *that* a GPU is missing,
+    this reports *why* -- so a silent fallback to ``cpu`` on a host that does
+    have a GPU is diagnosable.
+
+    On Linux the usual cause is a missing Vulkan **loader**: NVIDIA's driver
+    installs an ICD at ``/etc/vulkan/icd.d/`` but not ``libvulkan.so.1``, so
+    wgpu enumerates zero adapters. Install the loader (``apt install
+    libvulkan1``) and ``vulkan`` appears.
+
+    Probing a GPU is not free, and the result is not cached here, so call
+    this when diagnosing rather than on a hot path.
+    """
+    return dict(_device_report())
+
 
 #: Standard dimension names and their pinned numpy dtypes, per ADR-0002.
 STANDARD_DIMENSIONS: dict[str, np.dtype] = {

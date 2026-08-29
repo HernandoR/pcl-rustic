@@ -31,6 +31,28 @@
 //! 0.22.0-pre.2. `flex` runs the identical [10M,3] workload in 0.22s.
 //! Upstream issue: <https://github.com/tracel-ai/burn/issues/5419>.
 //!
+//! That crash is now **fixed upstream** by
+//! <https://github.com/tracel-ai/burn/pull/5423> (merged 2026-08-26): the
+//! `gemv` autotune group was handing `PRIORITY_MAX` to 1D vector routines for
+//! any CPU matmul, so a tall `[N,3] x [3,3]` was scheduled as N one-element
+//! micro-cubes and exhausted the worker stack during partition bisection. The
+//! fix gates that on `MatmulKind::{MatVec, VecMat}`.
+//!
+//! We are nonetheless **staying on `flex`**, for two independent reasons:
+//!
+//! 1. The fix is not in any published release. The newest crates.io version
+//!    is 0.22.0-pre.3 (2026-08-25), which predates the merge by a day, so
+//!    adopting it would mean a git pin -- unjustifiable for a backend we do
+//!    not otherwise need.
+//! 2. Even fixed, it is slower for our shape. The PR reports the repaired
+//!    path routing to `CpuGemmStrategy` at ~3.4s for the workload `flex`
+//!    already does in 0.22s -- a ~15x regression, because the fix restores
+//!    correctness, not competitiveness, on extreme aspect ratios.
+//!
+//! So this is worth *re-checking* once a release carries the fix (and
+//! benchmarking `[10M,3] x [3,3]` before switching), but the crash was only
+//! ever the tiebreaker; the throughput gap is the actual reason.
+//!
 //! `torch` also declares a direct optional dependency on `burn-dispatch`
 //! itself (see Cargo.toml). This works around a wiring gap in burn 0.21:
 //! every other backend feature on the `burn` facade crate (`cpu`, `cuda`,
@@ -49,7 +71,7 @@
 
 use burn::tensor::Tensor;
 use burn::Dispatch;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
 
 pub use burn::DispatchDevice;
 
@@ -90,20 +112,80 @@ const ALL_NAMES: &[&str] = &["cpu", "metal", "vulkan", "cuda", "torch"];
 /// that GPU backends raise when no matching adapter is present at runtime.
 /// This is deliberately distinct from compile-time feature availability:
 /// a Vulkan build on a headless CI box compiles fine but has no adapter.
-fn probe(device: &DispatchDevice) -> bool {
+///
+/// On failure the panic message is returned rather than discarded, so
+/// [`device_report`] and [`parse_device_name`] can say *why* a GPU that is
+/// physically present did not come up. The common Linux case is a host with
+/// an NVIDIA driver (hence an ICD at `/etc/vulkan/icd.d/`) but no
+/// `libvulkan.so.1` loader package installed: wgpu then enumerates zero
+/// adapters and we silently degrade to `cpu`, which is exactly the failure
+/// that is impossible to diagnose from `available_devices()` alone.
+///
+/// The panic hook is process-global, so a concurrent panic on an unrelated
+/// thread can be swallowed (or misattributed) during the probe window. That
+/// race predates the message capture and is accepted: probing happens once,
+/// early, behind `DEFAULT_DEVICE`'s `LazyLock`.
+fn probe_detail(device: &DispatchDevice) -> std::result::Result<(), String> {
     let device = device.clone();
     // GPU backends panic deep inside cubecl worker threads when no adapter
-    // exists; every thread's panic goes through the global hook, so silence
-    // it for the probe window to keep headless-host fallback quiet.
+    // exists; every thread's panic goes through the global hook, so replace
+    // it for the probe window both to keep headless-host fallback quiet and
+    // to capture the reason from whichever thread actually failed --
+    // `catch_unwind` below only ever sees the caller thread's payload.
+    let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let sink = Arc::clone(&captured);
     let saved_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
+    std::panic::set_hook(Box::new(move |info| {
+        // First panic wins: the deepest one is the informative one, and any
+        // later panic is usually just the failure cascading back out.
+        let mut slot = sink.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_none() {
+            *slot = Some(info.to_string());
+        }
+    }));
     let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
         let tensor = Tensor::<B, 1>::zeros([1], &device);
         let _ = tensor.into_data();
     }))
     .is_ok();
     std::panic::set_hook(saved_hook);
-    ok
+    if ok {
+        return Ok(());
+    }
+    let reason = captured
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .unwrap_or_else(|| "backend initialization failed without a message".to_string());
+    Err(reason)
+}
+
+/// [`probe_detail`] reduced to a yes/no, for the callers that only branch on it.
+fn probe(device: &DispatchDevice) -> bool {
+    probe_detail(device).is_ok()
+}
+
+/// Per-device status for every name in [`ALL_NAMES`], in roster order:
+/// `"available"`, `"not compiled into this build"`, or `"unavailable: <panic
+/// message>"`. This is the diagnostic counterpart to `available_devices()`,
+/// which reports *that* a GPU is missing but never *why* -- turning a silent
+/// CPU fallback into something a user can act on.
+pub fn device_report() -> Vec<(String, String)> {
+    ALL_NAMES
+        .iter()
+        .map(|name| {
+            let status = match construct(name) {
+                None => "not compiled into this build".to_string(),
+                // `cpu` is never probed, matching `available_devices`.
+                Some(_) if *name == "cpu" => "available".to_string(),
+                Some(device) => match probe_detail(&device) {
+                    Ok(()) => "available".to_string(),
+                    Err(reason) => format!("unavailable: {reason}"),
+                },
+            };
+            ((*name).to_string(), status)
+        })
+        .collect()
 }
 
 static DEFAULT_DEVICE: LazyLock<DispatchDevice> = LazyLock::new(|| {
@@ -156,10 +238,12 @@ pub fn parse_device_name(name: &str) -> Result<DispatchDevice> {
             available_devices()
         ))
     })?;
-    if name != "cpu" && !probe(&device) {
-        return Err(Error::os(format!(
-            "device '{name}' is compiled in but not usable on this machine"
-        )));
+    if name != "cpu" {
+        if let Err(reason) = probe_detail(&device) {
+            return Err(Error::os(format!(
+                "device '{name}' is compiled in but not usable on this machine: {reason}"
+            )));
+        }
     }
     Ok(device)
 }

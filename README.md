@@ -109,6 +109,7 @@ from pcl_rustic import available_devices, default_device
 
 available_devices()  # e.g. ["cpu", "vulkan"] on Linux, ["cpu", "metal"] on macOS
 default_device()     # picks a GPU variant if one initializes, else "cpu"
+device_report()      # why each device is / is not usable -- see below
 
 pc.device                  # -> str
 pc_gpu = pc.to_device("vulkan")
@@ -131,6 +132,37 @@ in `Cargo.toml` instead of being a Cargo feature — see
 `docs/plans/adr-0001-unified-dispatch-backend-torch-interop-2026-08-22.md`.
 Asking for a device from another platform raises `ValueError` ("not compiled
 into this build"); asking for one whose adapter is missing raises `OSError`.
+
+### Linux needs a Vulkan loader
+
+GPU selection degrades to `cpu` rather than raising (ADR-0001), so a host that
+*has* a GPU but cannot initialize it looks exactly like a host that has none.
+On Linux the usual cause is a missing Vulkan **loader**: the NVIDIA driver
+installs an ICD at `/etc/vulkan/icd.d/nvidia_icd.json`, but wgpu talks to
+`libvulkan.so.1`, which ships separately and is absent from most server and
+container images. Without it wgpu enumerates zero adapters.
+
+```console
+$ sudo apt install libvulkan1      # Debian/Ubuntu
+$ sudo dnf install vulkan-loader   # Fedora/RHEL
+```
+
+Use `device_report()` to tell the two cases apart — it surfaces the underlying
+adapter-enumeration error instead of just omitting the device:
+
+```python
+>>> from pcl_rustic import device_report
+>>> device_report()
+{'cpu': 'available',
+ 'metal': 'not compiled into this build',
+ 'vulkan': 'unavailable: panicked at ...: No possible adapter available for '
+           'backend. ... active_backends: Backends(0x0) ...',
+ ...}
+```
+
+`active_backends: Backends(0x0)` with `supported_backends` non-empty is the
+missing-loader signature. Probing is not cached, so call it when diagnosing,
+not on a hot path.
 
 ## Dtype contract
 

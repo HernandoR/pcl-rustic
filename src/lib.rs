@@ -17,5 +17,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<py::PyDownsampleStrategy>()?;
     m.add_function(wrap_pyfunction!(py::available_devices, m)?)?;
     m.add_function(wrap_pyfunction!(py::default_device, m)?)?;
+    m.add_function(wrap_pyfunction!(py::device_report, m)?)?;
     Ok(())
 }
