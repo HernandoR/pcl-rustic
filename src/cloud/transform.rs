@@ -12,6 +12,12 @@
 //! f32 relative coordinates on-device, and the translation folds into the
 //! f64 offset only, so the promised f8 precision never depends on GPU float
 //! precision.
+//!
+//! CPU-resident f32 clouds (the default dtype) use the same decomposition as
+//! the device path -- rotate the relative coordinates in f32, fold the
+//! translation into the f64 offset -- so a given cloud transforms to the
+//! same values wherever it lives: `R*(offset+rel) + t = (R*offset + t) +
+//! R*rel`.
 
 use crate::backend::B;
 use crate::cloud::{Coords, PointCloud};
@@ -74,7 +80,7 @@ impl PointCloud {
         }
 
         result.coords = Some(match coords {
-            Coords::Cpu(points) => {
+            Coords::CpuF64(points) => {
                 let mut out = vec![0.0f64; points.len()];
                 out.par_chunks_mut(3)
                     .zip(points.par_chunks(3))
@@ -86,7 +92,23 @@ impl PointCloud {
                                 + translation[i];
                         }
                     });
-                Coords::Cpu(out)
+                Coords::CpuF64(out)
+            }
+            Coords::CpuF32(rel) => {
+                // f32 arithmetic on relative coordinates, matching the
+                // device matmul's precision; translation lives entirely in
+                // the offset update below.
+                let r: [[f32; 3]; 3] =
+                    std::array::from_fn(|i| std::array::from_fn(|j| rotation[i][j] as f32));
+                let mut out = vec![0.0f32; rel.len()];
+                out.par_chunks_mut(3)
+                    .zip(rel.par_chunks(3))
+                    .for_each(|(o, p)| {
+                        for i in 0..3 {
+                            o[i] = r[i][0] * p[0] + r[i][1] * p[1] + r[i][2] * p[2];
+                        }
+                    });
+                Coords::CpuF32(out)
             }
             Coords::Device(tensor) => {
                 // `TensorData: From<[[E; B]; A]>` takes the f8 rotation as-is

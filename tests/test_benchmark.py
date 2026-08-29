@@ -10,19 +10,26 @@ import time
 
 import numpy as np
 import pytest
-from pcl_rustic import DownsampleStrategy, PointCloud, default_device
+from conftest import resolve_bench_device
+from pcl_rustic import DownsampleStrategy, PointCloud, get_default_dtype
 
 pytestmark = [pytest.mark.bench, pytest.mark.slow]
 
 POINT_COUNTS = [1_000_000, 10_000_000]
 
+BENCH_DEVICE = resolve_bench_device()
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _device_banner() -> None:
-    """Name the device up front: every number below is device-dependent, and
-    a run that silently landed on `cpu` is otherwise indistinguishable from
-    one that used the GPU."""
-    print(f"\n[pcl-rustic device: {default_device()}]")
+    """Name the device and dtype up front: every number below depends on
+    both, and a run that silently landed on `cpu` is otherwise
+    indistinguishable from one that used the GPU."""
+    print(f"\n[pcl-rustic device: {BENCH_DEVICE}  dtype: {get_default_dtype()}]")
+
+
+def _pc(xyz: np.ndarray) -> PointCloud:
+    return PointCloud.from_xyz(xyz).to_device(BENCH_DEVICE)
 
 
 def _gaussian_xyz(n_points: int, seed: int = 0) -> np.ndarray:
@@ -33,7 +40,7 @@ def _gaussian_xyz(n_points: int, seed: int = 0) -> np.ndarray:
 @pytest.mark.parametrize("n_points", POINT_COUNTS)
 def test_voxel_downsample_throughput(n_points: int) -> None:
     xyz = _gaussian_xyz(n_points)
-    pc = PointCloud.from_xyz(xyz)
+    pc = _pc(xyz)
 
     t0 = time.perf_counter()
     down = pc.voxel_downsample(0.15, strategy=DownsampleStrategy.NEAREST_TO_CENTROID)
@@ -50,7 +57,7 @@ def test_voxel_downsample_throughput(n_points: int) -> None:
 @pytest.mark.parametrize("n_points", POINT_COUNTS)
 def test_transform_throughput(n_points: int) -> None:
     xyz = _gaussian_xyz(n_points)
-    pc = PointCloud.from_xyz(xyz)
+    pc = _pc(xyz)
     matrix = np.eye(4)
     matrix[:3, :3] = np.array([[0.8, -0.6, 0.0], [0.6, 0.8, 0.0], [0.0, 0.0, 1.0]])
     matrix[:3, 3] = [1.0, 2.0, 3.0]
@@ -60,24 +67,27 @@ def test_transform_throughput(n_points: int) -> None:
     # and made it look slower than the 10M one.
     _ = pc.transform(matrix).xyz
 
+    # Three timing points, because they measure different things:
+    #   submit   -- enqueue only (GPU ops are asynchronous),
+    #   compute  -- + synchronize(): kernel execution, no data movement,
+    #   total    -- + .xyz: readback and numpy materialization.
+    # Per-op throughput is quoted on *compute*: materialization is a
+    # boundary cost paid once per host readout, not per op, and folding it
+    # in made the GPU look slower than the CPU while its kernel was ~100x
+    # faster.
     t0 = time.perf_counter()
     out = pc.transform(matrix)
     submit = time.perf_counter() - t0
-    # burn tensor ops are lazy: reading coordinates back forces execution,
-    # so materialization must sit inside the timed region.
+    out.synchronize()
+    compute = time.perf_counter() - t0
     result = out.xyz
-    elapsed = time.perf_counter() - t0
+    total = time.perf_counter() - t0
 
-    throughput = n_points / elapsed if elapsed > 0 else float("inf")
-    # Split the two, because they scale differently and the total is
-    # misleading on its own: on a GPU the transform itself is sub-millisecond
-    # and the time is readback over PCIe plus the f32 -> f64 widening pass
-    # into a fresh (N, 3) f64 array. A GPU that looks "slower" here is
-    # usually a materialization cost, not idle silicon.
+    throughput = n_points / compute if compute > 0 else float("inf")
     print(
-        f"transform         n={n_points:>11,}  time={elapsed:8.3f}s  "
+        f"transform         n={n_points:>11,}  compute={compute * 1e3:8.1f}ms  "
         f"throughput={throughput:14,.0f} pts/s  "
-        f"(submit={submit * 1e3:7.1f}ms  materialize={(elapsed - submit) * 1e3:7.1f}ms)"
+        f"(submit={submit * 1e3:7.1f}ms  materialize={(total - compute) * 1e3:7.1f}ms)"
     )
     assert len(out) == n_points
     assert result.shape == (n_points, 3)

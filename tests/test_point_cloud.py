@@ -32,7 +32,9 @@ class TestConstruction:
     def test_from_xyz_coerces_integer_dtype(self) -> None:
         data = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int32)
         pc = PointCloud.from_xyz(data)
-        assert pc.xyz.dtype == np.float64
+        # Readout dtype follows the cloud's coordinate dtype (float32 by
+        # default); the integer input is still ingested via exact f64.
+        assert pc.xyz.dtype == pc.dtype
         np.testing.assert_allclose(pc.xyz, data.astype(np.float64))
 
     def test_from_xyz_rejects_wrong_shape(self) -> None:
@@ -107,12 +109,29 @@ class TestDimensionAccess:
 
 class TestCoordinatePrecision:
     def test_utm_scale_precision_under_one_millimeter(
-        self, utm_xyz: np.ndarray
+        self, utm_xyz: np.ndarray, float64_dtype: None
     ) -> None:
+        """The sub-millimeter UTM promise belongs to the float64 dtype: a
+        float32 readout at ~4e6 magnitude cannot beat ~0.25 m by
+        construction (f32 has 24 mantissa bits)."""
         pc = PointCloud.from_xyz(utm_xyz)
         out = pc.xyz
         assert out.dtype == np.float64
         np.testing.assert_allclose(out, utm_xyz, atol=1e-3)
+
+    def test_utm_scale_float32_readout_is_ulp_bounded(
+        self, utm_xyz: np.ndarray
+    ) -> None:
+        """Under the float32 default the *readout* quantizes to the f32 grid
+        (~0.25 m at 4e6), but must not exceed it: internal storage is f32
+        relative to an f64 offset, so no extent-scale error accumulates."""
+        pc = PointCloud.from_xyz(utm_xyz)
+        out = pc.xyz
+        assert out.dtype == np.float32
+        max_ulp = np.spacing(np.abs(utm_xyz).max(axis=0).astype(np.float32))
+        np.testing.assert_allclose(
+            out.astype(np.float64), utm_xyz, atol=float(max_ulp.max())
+        )
 
 
 class TestTransform:

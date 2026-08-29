@@ -164,6 +164,44 @@ adapter-enumeration error instead of just omitting the device:
 missing-loader signature. Probing is not cached, so call it when diagnosing,
 not on a hot path.
 
+## Coordinate dtype
+
+Coordinates have a process-wide default dtype, torch-style:
+
+```python
+import pcl_rustic
+
+pcl_rustic.get_default_dtype()          # "float32" (the default)
+pcl_rustic.set_default_dtype("float64") # affects clouds constructed afterwards
+pc.dtype                                # np.dtype, fixed at construction
+```
+
+or set the initial value with the `PCL_RUSTIC_DEFAULT_DTYPE` environment
+variable (`float32`/`float64`; read once, at first use; an invalid value
+warns and falls back to `float32` rather than failing the import).
+
+| dtype | storage | reads return | placement at construction |
+|---|---|---|---|
+| `float32` (default) | f32 relative to a per-cloud f64 offset, on CPU and GPU alike | `float32` | `default_device()` (GPU-first) |
+| `float64` | absolute f64 on CPU; GPU is still f32-relative | `float64` | **always CPU** |
+
+`float32` makes CPU and GPU behave identically -- a cloud moves between them
+without re-encoding or precision change -- and coordinate reads skip the
+f32 -> f64 widening pass, which dominated GPU materialization (measured at
+10M points: `.xyz` readback 252 ms -> 125 ms on an A10G, 161 ms -> 17 ms on
+CPU). Internal storage is *relative*, so transforms and LAS writes keep f64
+anchoring regardless; only the absolute values handed to Python quantize to
+the f32 grid. That grid is extent-dependent: ~1e-5 m for a cloud spanning
+hundreds of meters, but **~0.25 m at raw UTM magnitudes (4e6)** -- surveying
+workflows at absolute coordinates should opt into `float64`.
+
+`float64` clouds ingest CPU-resident even when a GPU is the default device:
+no accelerator representation can hold f64, so honoring GPU-first placement
+would round the cloud at construction and silently defeat the opt-in.
+Rounding under `float64` only ever happens through an explicit
+`to_device(...)`. On CPU the f64 representation is absolute and exact: LAS
+round-trips are bit-identical to laspy.
+
 ## Dtype contract
 
 `PointCloud` is a set of named, equal-length dimensions. Standard dimension
@@ -171,7 +209,7 @@ names carry pinned numpy dtypes, identical to laspy:
 
 | Dimension | numpy dtype | Notes |
 |---|---|---|
-| `x`, `y`, `z` | `f8` | scaled coordinates |
+| `x`, `y`, `z` | `f4` / `f8` | follows the coordinate dtype (below); writes always accepted as `f8` |
 | `intensity` | `u2` | |
 | `return_number` | `u1` | unpacked from the LAS bit field |
 | `number_of_returns` | `u1` | unpacked |

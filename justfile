@@ -23,14 +23,24 @@ test: dev
 test-all: dev
     uv run pytest -m "not bench"
 
-# Run benchmark tests
+# Run benchmark tests (on the default device; set PCL_BENCH_DEVICE to pin)
 bench: build
     uv run pytest -m bench -s
 
-# Run benchmarks including the Open3D / laspy comparison
+# Run benchmarks including the Open3D / laspy comparison, pinned to CPU:
+# every baseline is a CPU library, so this is the like-for-like table.
 bench-compare: build
     uv sync --group test
-    uv run pytest -m bench -s
+    PCL_BENCH_DEVICE=cpu uv run pytest -m bench -s
+
+# The same comparison with pcl-rustic pinned to the GPU (skips if none).
+# GPU op timings are compute-only (submit + synchronize), excluding the
+# PCIe readback / numpy materialization; the CPU baselines still include
+# their (host-resident) materialization. Read the module docstring's
+# fairness notes before quoting numbers across the two tables.
+bench-compare-gpu: build
+    uv sync --group test
+    PCL_BENCH_DEVICE=gpu uv run pytest -m bench -s
 
 # Build the PCL C++ baseline harness and run the PCL comparison.
 # Requires PCL dev headers (Debian/Ubuntu: apt install cmake libpcl-dev).

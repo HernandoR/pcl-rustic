@@ -18,5 +18,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py::available_devices, m)?)?;
     m.add_function(wrap_pyfunction!(py::default_device, m)?)?;
     m.add_function(wrap_pyfunction!(py::device_report, m)?)?;
+    m.add_function(wrap_pyfunction!(py::set_default_dtype, m)?)?;
+    m.add_function(wrap_pyfunction!(py::get_default_dtype, m)?)?;
     Ok(())
 }

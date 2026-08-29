@@ -8,6 +8,8 @@ pub mod convert;
 pub use cloud::PyPointCloud;
 
 use crate::backend;
+use crate::cloud::{default_coord_dtype, set_default_coord_dtype, CoordDtype};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Voxel downsampling strategy codes, exposed as class attributes rather
@@ -39,4 +41,23 @@ pub fn default_device() -> String {
 #[pyfunction]
 pub fn device_report() -> Vec<(String, String)> {
     backend::device_report()
+}
+
+/// Sets the process-wide default coordinate dtype for *newly constructed*
+/// clouds (torch-style semantics; existing clouds keep theirs). The Python
+/// wrapper normalizes numpy dtype objects to a name before calling this.
+#[pyfunction]
+pub fn set_default_dtype(dtype: &str) -> PyResult<()> {
+    let parsed = CoordDtype::parse(dtype).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "unsupported coordinate dtype '{dtype}'; expected 'float32' or 'float64'"
+        ))
+    })?;
+    set_default_coord_dtype(parsed);
+    Ok(())
+}
+
+#[pyfunction]
+pub fn get_default_dtype() -> String {
+    default_coord_dtype().numpy_name().to_string()
 }

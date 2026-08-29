@@ -186,6 +186,14 @@ pub fn xyz_to_pyobject(py: Python<'_>, flat: Vec<f64>, n: usize) -> Py<PyAny> {
     PyArray2::from_owned_array(py, array).into_any().unbind()
 }
 
+/// Builds a fresh `(n, 3)` f4 numpy array from row-major data (the readout
+/// for float32-dtype clouds).
+pub fn xyz32_to_pyobject(py: Python<'_>, flat: Vec<f32>, n: usize) -> Py<PyAny> {
+    let array = numpy::ndarray::Array2::from_shape_vec((n, 3), flat)
+        .expect("flat xyz buffer always has exactly 3n elements");
+    PyArray2::from_owned_array(py, array).into_any().unbind()
+}
+
 /// Reads a 1D f8 numpy array (`set_dim("x"/"y"/"z", ...)`).
 pub fn axis_from_pyobject(obj: &Bound<PyAny>) -> PyResult<Vec<f64>> {
     Ok(as_array1::<f64>(obj, "float64")?
@@ -196,6 +204,10 @@ pub fn axis_from_pyobject(obj: &Bound<PyAny>) -> PyResult<Vec<f64>> {
 }
 
 pub fn axis_to_pyobject(py: Python<'_>, values: Vec<f64>) -> Py<PyAny> {
+    values.into_pyarray(py).into_any().unbind()
+}
+
+pub fn axis32_to_pyobject(py: Python<'_>, values: Vec<f32>) -> Py<PyAny> {
     values.into_pyarray(py).into_any().unbind()
 }
 

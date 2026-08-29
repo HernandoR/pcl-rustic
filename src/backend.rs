@@ -209,6 +209,15 @@ pub fn default_device() -> DispatchDevice {
     DEFAULT_DEVICE.clone()
 }
 
+/// The always-available pure-Rust CPU device, without going through the
+/// probe machinery. Float64-dtype clouds ingest here regardless of
+/// [`default_device`]: no accelerator representation can hold f64, so
+/// placing a cloud whose dtype promises f64 on a GPU would round it to f32
+/// at construction -- exactly what choosing f64 asks to avoid.
+pub fn cpu_device() -> DispatchDevice {
+    DispatchDevice::Flex(Default::default())
+}
+
 /// Every device name usable on this machine right now: compiled-in variants
 /// that pass the runtime probe. `cpu` is always listed when compiled in,
 /// without probing (ADR-0001): CPU tensor creation cannot meaningfully fail

@@ -14,8 +14,14 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 from . import _core
-from ._core import DownsampleStrategy, available_devices, default_device
+from ._core import (
+    DownsampleStrategy,
+    available_devices,
+    default_device,
+    get_default_dtype,
+)
 from ._core import device_report as _device_report
+from ._core import set_default_dtype as _set_default_dtype
 
 __version__ = "0.1.0"
 
@@ -26,8 +32,34 @@ __all__ = [
     "available_devices",
     "default_device",
     "device_report",
+    "set_default_dtype",
+    "get_default_dtype",
     "STANDARD_DIMENSIONS",
 ]
+
+
+def set_default_dtype(dtype: DTypeLike) -> None:
+    """Set the coordinate dtype for *newly constructed* clouds.
+
+    Torch-style semantics: existing clouds keep the dtype they were created
+    with; only clouds constructed afterwards (including `read`) pick up the
+    new default. Accepts ``"float32"``/``"float64"``, ``np.float32``/
+    ``np.float64``, or anything ``np.dtype`` normalizes to those.
+
+    The default is **float32**: coordinates are stored f32 relative to a
+    per-cloud f64 offset on CPU and GPU alike, so a cloud behaves and reads
+    identically wherever it lives, and coordinate reads skip the f32 -> f64
+    widening pass that dominates GPU materialization. Choose ``float64``
+    when laspy-exact absolute coordinates matter (e.g. UTM-scale surveying):
+    CPU-resident float64 clouds hold absolute f64 and LAS round-trips are
+    bit-identical to laspy.
+
+    The initial value can also be set with the ``PCL_RUSTIC_DEFAULT_DTYPE``
+    environment variable (read once, at first use; an invalid value warns on
+    stderr and falls back to float32 rather than failing the import).
+    """
+    name = np.dtype(dtype).name
+    _set_default_dtype(name)
 
 
 def device_report() -> dict[str, str]:
@@ -51,6 +83,9 @@ def device_report() -> dict[str, str]:
 
 
 #: Standard dimension names and their pinned numpy dtypes, per ADR-0002.
+#: The x/y/z entries are the *setter* contract (writes are always taken as
+#: f64); what reads return follows the cloud's coordinate dtype -- see
+#: `set_default_dtype` and `PointCloud.dtype`.
 STANDARD_DIMENSIONS: dict[str, np.dtype] = {
     "x": np.dtype(np.float64),
     "y": np.dtype(np.float64),
@@ -365,7 +400,7 @@ class PointCloud:
     # -- x/y/z/xyz sugar ------------------------------------------------
 
     @property
-    def x(self) -> NDArray[np.float64]:
+    def x(self) -> NDArray[np.floating]:
         return self._inner.get_dim("x")
 
     @x.setter
@@ -373,7 +408,7 @@ class PointCloud:
         self._assign_dim("x", value)
 
     @property
-    def y(self) -> NDArray[np.float64]:
+    def y(self) -> NDArray[np.floating]:
         return self._inner.get_dim("y")
 
     @y.setter
@@ -381,7 +416,7 @@ class PointCloud:
         self._assign_dim("y", value)
 
     @property
-    def z(self) -> NDArray[np.float64]:
+    def z(self) -> NDArray[np.floating]:
         return self._inner.get_dim("z")
 
     @z.setter
@@ -389,7 +424,7 @@ class PointCloud:
         self._assign_dim("z", value)
 
     @property
-    def xyz(self) -> NDArray[np.float64]:
+    def xyz(self) -> NDArray[np.floating]:
         return self._inner.get_dim("xyz")
 
     @xyz.setter
@@ -437,8 +472,21 @@ class PointCloud:
     def device(self) -> str:
         return self._inner.device
 
+    @property
+    def dtype(self) -> np.dtype:
+        """The coordinate dtype (`float32` or `float64`) this cloud was
+        created with; decides the dtype `x`/`y`/`z`/`xyz` reads return."""
+        return np.dtype(self._inner.dtype)
+
     def to_device(self, device: str) -> "PointCloud":
         return self._wrap(self._inner.to_device(device))
+
+    def synchronize(self) -> None:
+        """Block until queued device ops on this cloud have executed,
+        without reading data back. GPU ops run asynchronously, so timing an
+        op alone measures submission; `op` + `synchronize()` measures
+        compute, excluding readback/materialization. No-op on CPU."""
+        self._inner.synchronize()
 
     # -- I/O, misc ------------------------------------------------------
 

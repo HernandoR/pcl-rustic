@@ -52,7 +52,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from pcl_rustic import DownsampleStrategy, PointCloud, default_device
+from conftest import resolve_bench_device
+from pcl_rustic import DownsampleStrategy, PointCloud, get_default_dtype
 
 o3d = pytest.importorskip("open3d", reason="open3d not installed")
 laspy = pytest.importorskip("laspy", reason="laspy not installed")
@@ -78,12 +79,48 @@ def _gaussian_xyz(n_points: int, seed: int = 0) -> np.ndarray:
     return rng.normal(scale=100.0, size=(n_points, 3))
 
 
+BENCH_DEVICE = resolve_bench_device()
+GPU_MODE = BENCH_DEVICE != "cpu"
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _device_banner() -> None:
-    """Name the device up front: every pcl-rustic number below is
-    device-dependent, while every baseline is CPU. Without this a run that
+    """Name the device and dtype up front: every pcl-rustic number below
+    depends on both, while every baseline is CPU. Without this a run that
     silently fell back to `cpu` reads identically to a GPU run."""
-    print(f"\n[pcl-rustic device: {default_device()}  |  baselines: cpu]")
+    mode = " (op timing: compute only, no readback)" if GPU_MODE else ""
+    print(
+        f"\n[pcl-rustic device: {BENCH_DEVICE}  dtype: {get_default_dtype()}"
+        f"  |  baselines: cpu{mode}]"
+    )
+
+
+def _pc(xyz: np.ndarray) -> PointCloud:
+    return PointCloud.from_xyz(xyz).to_device(BENCH_DEVICE)
+
+
+def _timed_transform(pc: PointCloud, matrix: np.ndarray) -> float:
+    """Median wall time of one transform, honoring the device's semantics.
+
+    On the GPU the timed region is submit + `synchronize()`: kernel
+    execution without the PCIe readback and numpy materialization, which are
+    boundary costs paid once per host readout, not per op. On the CPU it is
+    op + `.xyz`, matching what the CPU baselines are charged for (their
+    results are host-resident and materialized by construction).
+    """
+    if GPU_MODE:
+
+        def op() -> PointCloud:
+            out = pc.transform(matrix)
+            out.synchronize()
+            return out
+    else:
+
+        def op() -> np.ndarray:  # type: ignore[misc]
+            return pc.transform(matrix).xyz
+
+    elapsed, _ = _timed(op)
+    return elapsed
 
 
 #: One warmup run, then the median of this many timed runs. Without the
@@ -160,7 +197,7 @@ def _run_pcl(path: Path, leaf: float) -> dict[str, float]:
 @pytest.mark.parametrize("n_points", POINT_COUNTS)
 def test_vs_open3d_voxel_downsample(n_points: int) -> None:
     xyz = _gaussian_xyz(n_points)
-    pc = PointCloud.from_xyz(xyz)
+    pc = _pc(xyz)
     pcd = _o3d_cloud(xyz)
 
     ours, down = _timed(
@@ -185,20 +222,20 @@ def test_vs_open3d_voxel_downsample(n_points: int) -> None:
 def test_vs_open3d_transform(n_points: int) -> None:
     xyz = _gaussian_xyz(n_points)
     matrix = _transform_matrix()
-    pc = PointCloud.from_xyz(xyz)
+    pc = _pc(xyz)
     pcd = _o3d_cloud(xyz)
 
     # Open3D's transform mutates in place, so repeated calls compose. The
     # per-call work is identical either way, so the timing stays valid, but
     # the numerical check has to run on untouched clouds (below).
-    ours, _ = _timed(lambda: pc.transform(matrix).xyz)
+    ours = _timed_transform(pc, matrix)
     theirs, _ = _timed(lambda: np.asarray(pcd.transform(matrix).points))
 
     _row("transform (4x4)", n_points, ours, theirs, "open3d")
 
     # Both must agree on the math, or the comparison is meaningless: one
     # application each, on fresh clouds.
-    fresh_ours = PointCloud.from_xyz(xyz).transform(matrix).xyz
+    fresh_ours = _pc(xyz).transform(matrix).xyz
     fresh_theirs = np.asarray(_o3d_cloud(xyz).transform(matrix).points)
     np.testing.assert_allclose(fresh_ours, fresh_theirs, atol=1e-3)
 
@@ -215,13 +252,14 @@ def test_vs_pcl_cpp(tmp_path: Path) -> None:
     pcl = _run_pcl(data, PCL_SAFE_LEAF)
     assert not pcl["voxel_refused"], "PCL refused the leaf size; comparison invalid"
 
-    pc = PointCloud.from_xyz(xyz)
+    pc = _pc(xyz)
     ours_voxel, down = _timed(
         lambda: pc.voxel_downsample(
             PCL_SAFE_LEAF, strategy=DownsampleStrategy.NEAREST_TO_CENTROID
         )
     )
-    ours_transform, moved = _timed(lambda: pc.transform(_transform_matrix()).xyz)
+    ours_transform = _timed_transform(pc, _transform_matrix())
+    moved = pc.transform(_transform_matrix()).xyz
 
     _row(
         f"voxel_downsample (leaf {PCL_SAFE_LEAF})",
@@ -253,7 +291,7 @@ def test_pcl_voxelgrid_refuses_fine_leaf(tmp_path: Path) -> None:
     _dump_xyz(xyz, data)
 
     pcl = _run_pcl(data, VOXEL_SIZE)
-    pc = PointCloud.from_xyz(xyz)
+    pc = _pc(xyz)
     down = pc.voxel_downsample(
         VOXEL_SIZE, strategy=DownsampleStrategy.NEAREST_TO_CENTROID
     )
@@ -293,31 +331,31 @@ def test_vs_laspy_read(tmp_path: Path) -> None:
 
     _row("LAS read + xyz", IO_POINTS, ours, theirs, "laspy ")
     las_scale = 1.0e-3
-    max_dev = float(np.abs(ours_xyz - theirs_xyz).max())
+    max_dev = float(np.abs(np.asarray(ours_xyz, dtype=np.float64) - theirs_xyz).max())
     print(
-        f"{'  coordinate fidelity':<26} [{loaded.device}] "
+        f"{'  coordinate fidelity':<26} [{loaded.device}/{loaded.dtype}] "
         f"max deviation vs laspy = {max_dev:.3e} m "
         f"({max_dev / las_scale:.1%} of the {las_scale} LAS scale step)"
     )
 
-    # ADR-0002 promises two different things depending on where the cloud
-    # landed, and `read` uses `default_device()` -- which is a GPU whenever
-    # one initializes. Asserting the CPU guarantee unconditionally only
-    # passed while GPU init was silently failing.
-    if loaded.device == "cpu":
-        # CPU-resident clouds hold absolute f64, so a LAS round-trip is
+    # ADR-0002 promises different things depending on where the cloud landed
+    # and its coordinate dtype; `read` uses the ambient defaults. Asserting
+    # the strictest guarantee unconditionally only passed while GPU init was
+    # silently failing.
+    if loaded.device == "cpu" and loaded.dtype == np.float64:
+        # CPU-resident f64 clouds hold absolute f64, so a LAS round-trip is
         # bit-identical to laspy's: both compute offset + raw * scale in f64.
         assert max_dev == 0.0, (
-            f"expected bit-identical coordinates on CPU, got deviation {max_dev}"
+            f"expected bit-identical coordinates on CPU/f64, got deviation {max_dev}"
         )
     else:
-        # Device-resident clouds are f32 relative to an f64 offset. The
-        # promise is only that the error stays under LAS quantization, i.e.
-        # the round-trip loses nothing the format itself preserved.
+        # f32-relative representations (GPU, or the float32 default dtype on
+        # CPU) promise only that the error stays under LAS quantization,
+        # i.e. the round-trip loses nothing the format itself preserved.
         assert max_dev < las_scale / 2, (
-            f"deviation {max_dev} on '{loaded.device}' exceeds half the LAS "
-            f"scale step ({las_scale / 2}); f32-relative coordinates are "
-            f"supposed to stay under quantization"
+            f"deviation {max_dev} on '{loaded.device}'/{loaded.dtype} exceeds "
+            f"half the LAS scale step ({las_scale / 2}); f32-relative "
+            f"coordinates are supposed to stay under quantization"
         )
 
 
