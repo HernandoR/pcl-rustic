@@ -33,6 +33,13 @@ Fairness notes -- read these before quoting any number
   others are not.
 * **Element types differ by design.** PCL `PointXYZ` is f32, Open3D is f64,
   pcl-rustic is f32 relative to an f64 offset.
+* **The device is printed, and it changes the meaning of every row.** These
+  baselines are all CPU. When pcl-rustic runs on a GPU the transform row is
+  dominated by PCIe readback and the f32 -> f64 widening, not by the
+  transform: measured on an A10G at n=10M, submit is ~0.3 ms and
+  materialization ~260 ms, versus ~31 ms and ~161 ms on `cpu`. So the GPU
+  can be *slower* here while doing the arithmetic ~100x faster. Compare
+  like-for-like by pinning the device before drawing conclusions.
 """
 
 from __future__ import annotations
@@ -45,7 +52,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from pcl_rustic import DownsampleStrategy, PointCloud
+from pcl_rustic import DownsampleStrategy, PointCloud, default_device
 
 o3d = pytest.importorskip("open3d", reason="open3d not installed")
 laspy = pytest.importorskip("laspy", reason="laspy not installed")
@@ -69,6 +76,14 @@ IO_POINTS = 2_000_000
 def _gaussian_xyz(n_points: int, seed: int = 0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.normal(scale=100.0, size=(n_points, 3))
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _device_banner() -> None:
+    """Name the device up front: every pcl-rustic number below is
+    device-dependent, while every baseline is CPU. Without this a run that
+    silently fell back to `cpu` reads identically to a GPU run."""
+    print(f"\n[pcl-rustic device: {default_device()}  |  baselines: cpu]")
 
 
 #: One warmup run, then the median of this many timed runs. Without the
@@ -272,23 +287,38 @@ def test_vs_laspy_read(tmp_path: Path) -> None:
             [np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)]
         )
 
+    loaded = PointCloud.read(str(path))
     ours, ours_xyz = _timed(lambda: PointCloud.read(str(path)).xyz)
     theirs, theirs_xyz = _timed(theirs_op)
 
     _row("LAS read + xyz", IO_POINTS, ours, theirs, "laspy ")
-    # Since the ADR-0002 amendment, CPU-resident clouds hold absolute f64
-    # coordinates, so a LAS round-trip is bit-identical to laspy's: both
-    # compute offset + raw * scale in f64. A GPU-resident cloud would still
-    # carry f32 epsilon; this test runs on CPU.
     las_scale = 1.0e-3
     max_dev = float(np.abs(ours_xyz - theirs_xyz).max())
     print(
-        f"{'  coordinate fidelity':<26} max deviation vs laspy = {max_dev:.3e} m "
+        f"{'  coordinate fidelity':<26} [{loaded.device}] "
+        f"max deviation vs laspy = {max_dev:.3e} m "
         f"({max_dev / las_scale:.1%} of the {las_scale} LAS scale step)"
     )
-    assert max_dev == 0.0, (
-        f"expected bit-identical coordinates, got deviation {max_dev}"
-    )
+
+    # ADR-0002 promises two different things depending on where the cloud
+    # landed, and `read` uses `default_device()` -- which is a GPU whenever
+    # one initializes. Asserting the CPU guarantee unconditionally only
+    # passed while GPU init was silently failing.
+    if loaded.device == "cpu":
+        # CPU-resident clouds hold absolute f64, so a LAS round-trip is
+        # bit-identical to laspy's: both compute offset + raw * scale in f64.
+        assert max_dev == 0.0, (
+            f"expected bit-identical coordinates on CPU, got deviation {max_dev}"
+        )
+    else:
+        # Device-resident clouds are f32 relative to an f64 offset. The
+        # promise is only that the error stays under LAS quantization, i.e.
+        # the round-trip loses nothing the format itself preserved.
+        assert max_dev < las_scale / 2, (
+            f"deviation {max_dev} on '{loaded.device}' exceeds half the LAS "
+            f"scale step ({las_scale / 2}); f32-relative coordinates are "
+            f"supposed to stay under quantization"
+        )
 
 
 def test_vs_laspy_dtype_parity(tmp_path: Path) -> None:
