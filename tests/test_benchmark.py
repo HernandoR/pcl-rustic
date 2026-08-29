@@ -91,3 +91,31 @@ def test_transform_throughput(n_points: int) -> None:
     )
     assert len(out) == n_points
     assert result.shape == (n_points, 3)
+
+
+def test_readout_view_vs_copy_throughput(float64_dtype: None) -> None:
+    """Zero-copy `view()` vs copying `.xyz`, f64 CPU cloud at 10M points.
+
+    The view should be O(1) -- it wraps the live buffer -- while `.xyz`
+    clones 240 MB. This is the counterpart to Open3D's zero-copy `.numpy()`
+    the fairness notes call out; it exists only for f64/CPU because the f32
+    representations are offset-relative and must compute at readout.
+    """
+    n = POINT_COUNTS[-1]
+    pc = PointCloud.from_xyz(_gaussian_xyz(n))
+    assert pc.device == "cpu" and pc.dtype == np.float64
+
+    t0 = time.perf_counter()
+    copied = pc.xyz
+    t_copy = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    viewed = pc.view()
+    t_view = time.perf_counter() - t0
+
+    print(
+        f"readout           n={n:>11,}  .xyz(copy)={t_copy * 1e3:8.1f}ms  "
+        f"view()={t_view * 1e6:8.1f}us  ({t_copy / max(t_view, 1e-9):,.0f}x)"
+    )
+    assert np.shares_memory(viewed, pc.view())
+    assert not np.shares_memory(viewed, copied)
+    np.testing.assert_array_equal(viewed, copied)

@@ -38,7 +38,7 @@ use burn::tensor::backend::Backend as _;
 use burn::tensor::{Tensor, TensorData};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 /// The precision a cloud's coordinates are stored at and read out as.
 /// Chosen per cloud at construction from [`default_coord_dtype`], never
@@ -110,7 +110,15 @@ pub fn set_default_coord_dtype(dtype: CoordDtype) {
 #[derive(Clone)]
 pub(crate) enum Coords {
     /// Absolute f64, row-major `[x0,y0,z0,...]`, CPU-resident (f64 dtype).
-    CpuF64(Vec<f64>),
+    ///
+    /// Behind an `Arc` for copy-on-write: Python-side zero-copy views hold a
+    /// clone of this `Arc`, so the buffer they point at outlives any later
+    /// mutation of the cloud -- mutating paths go through `Arc::make_mut`,
+    /// which clones the buffer if (and only if) a view or another cloud
+    /// still shares it. Views are therefore stable snapshots, never dangling
+    /// and never spooky-mutating. `PointCloud::clone()` also becomes O(1)
+    /// on this buffer as a side effect.
+    CpuF64(Arc<Vec<f64>>),
     /// f32 relative to the cloud's `offset`, row-major, CPU-resident (f32
     /// dtype). Deliberately the device representation on host memory:
     /// precision does not change when a cloud moves to and from the GPU.
@@ -235,9 +243,20 @@ impl PointCloud {
     /// (device-resident ones transfer first).
     pub fn coords_f64(&self) -> Option<Vec<f64>> {
         match self.coords.as_ref()? {
-            Coords::CpuF64(v) => Some(v.clone()),
+            Coords::CpuF64(v) => Some(v.as_ref().clone()),
             Coords::CpuF32(rel) => Some(self.rel_to_f64(rel)),
             Coords::Device(t) => Some(self.rel_to_f64(&Self::device_rel(t))),
+        }
+    }
+
+    /// The shared absolute-f64 buffer, for zero-copy views: `None` unless
+    /// the cloud is CPU-resident at f64 dtype. The other representations
+    /// are relative, so a readout necessarily computes `offset + rel` --
+    /// there is no absolute buffer to point a view at.
+    pub fn coords_f64_arc(&self) -> Option<Arc<Vec<f64>>> {
+        match self.coords.as_ref()? {
+            Coords::CpuF64(v) => Some(Arc::clone(v)),
+            Coords::CpuF32(_) | Coords::Device(_) => None,
         }
     }
 
@@ -250,7 +269,19 @@ impl PointCloud {
         match self.coords.as_ref()? {
             Coords::CpuF64(v) => Some(v.par_iter().map(|&x| x as f32).collect()),
             Coords::CpuF32(rel) => Some(self.rel_to_f32(rel)),
-            Coords::Device(t) => Some(self.rel_to_f32(&Self::device_rel(t))),
+            Coords::Device(t) => {
+                // The readback buffer is ours to overwrite: fold the offset
+                // in place instead of allocating a second 12-bytes-per-point
+                // buffer just to write `offset + rel` into it.
+                let mut rel = Self::device_rel(t);
+                let offset = self.offset;
+                rel.par_chunks_mut(3).for_each(|r| {
+                    r[0] = (offset[0] + r[0] as f64) as f32;
+                    r[1] = (offset[1] + r[1] as f64) as f32;
+                    r[2] = (offset[2] + r[2] as f64) as f32;
+                });
+                Some(rel)
+            }
         }
     }
 
@@ -398,7 +429,7 @@ impl PointCloud {
     /// (host-side for CPU clouds, a tensor for accelerator ones).
     fn encode_coords(&self, xyz: &[f64], n: usize) -> Coords {
         if backend::is_cpu_device(&self.device) && self.dtype == CoordDtype::F64 {
-            return Coords::CpuF64(xyz.to_vec());
+            return Coords::CpuF64(Arc::new(xyz.to_vec()));
         }
         let offset = self.offset;
         let mut rel = vec![0.0f32; xyz.len()];
@@ -600,7 +631,7 @@ impl PointCloud {
 
         result.coords = match self.coords.as_ref() {
             None => None,
-            Some(Coords::CpuF64(v)) => Some(Coords::CpuF64(gather3(v, selected))),
+            Some(Coords::CpuF64(v)) => Some(Coords::CpuF64(Arc::new(gather3(v, selected)))),
             Some(Coords::CpuF32(rel)) => Some(Coords::CpuF32(gather3(rel, selected))),
             Some(Coords::Device(t)) => {
                 let rel = Self::device_rel(t);

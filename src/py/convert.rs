@@ -10,6 +10,38 @@ use numpy::{
 };
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use std::sync::Arc;
+
+/// Base object for zero-copy coordinate views: holds an `Arc` clone of the
+/// cloud's f64 buffer, so the numpy array's memory stays alive however long
+/// the view outlives the cloud, and the cloud's own mutations copy-on-write
+/// away from it rather than into it.
+#[pyclass(name = "_CoordsOwner", frozen)]
+pub struct CoordsOwner(#[allow(dead_code)] Arc<Vec<f64>>);
+
+/// Builds a read-only, zero-copy `(n, 3)` f8 numpy view over the cloud's
+/// shared coordinate buffer. Read-only because the buffer may be shared
+/// with the cloud itself and with other views: writes through a view would
+/// alias unpredictably (before/after a copy-on-write split), so mutation
+/// stays with the cloud's own API.
+pub fn xyz_view_pyobject(py: Python<'_>, buf: Arc<Vec<f64>>, n: usize) -> PyResult<Py<PyAny>> {
+    debug_assert_eq!(buf.len(), n * 3);
+    let view = numpy::ndarray::ArrayView2::from_shape((n, 3), &buf[..])
+        .expect("coordinate buffer always has exactly 3n elements");
+    let owner = Bound::new(py, CoordsOwner(Arc::clone(&buf)))?;
+    // SAFETY: `owner` holds an `Arc` to the same allocation `view` borrows,
+    // and is registered as the numpy array's base object, so the data
+    // outlives the array. The buffer behind a shared `Arc<Vec>` is never
+    // reallocated: every mutating path goes through `Arc::make_mut`, which
+    // replaces the allocation rather than growing it.
+    let array = unsafe { PyArray2::borrow_from_array(&view, owner.into_any()) };
+    // Clear WRITEABLE (numpy arrays default to writable even over borrowed
+    // data); readers who need a mutable array take a .copy() explicitly.
+    unsafe {
+        (*array.as_array_ptr()).flags &= !numpy::npyffi::NPY_ARRAY_WRITEABLE;
+    }
+    Ok(array.into_any().unbind())
+}
 
 /// Downcasts `obj` to a 1D numpy array of exactly dtype `T`, or raises a
 /// `TypeError` naming the dtype the caller must supply.

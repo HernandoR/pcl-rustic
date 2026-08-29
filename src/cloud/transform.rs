@@ -24,6 +24,7 @@ use crate::cloud::{Coords, PointCloud};
 use crate::error::{Error, Result};
 use burn::tensor::Tensor;
 use rayon::prelude::*;
+use std::sync::Arc;
 
 /// Splits a `side * side` row-major matrix into its linear part and
 /// translation. A 4x4 matrix's top-left 3x3 block is the linear part; its
@@ -107,7 +108,7 @@ impl PointCloud {
                                 + translation[i];
                         }
                     });
-                Coords::CpuF64(out)
+                Coords::CpuF64(Arc::new(out))
             }
             Coords::CpuF32(rel) => {
                 // f32 arithmetic on relative coordinates, matching the
@@ -158,7 +159,10 @@ impl PointCloud {
 
         match coords {
             Coords::CpuF64(points) => {
-                points.par_chunks_mut(3).for_each(|p| {
+                // COW: clones the buffer first if a zero-copy view (or a
+                // cloned cloud) still shares it, keeping those views stable
+                // snapshots; mutates in place otherwise.
+                Arc::make_mut(points).par_chunks_mut(3).for_each(|p| {
                     let (x, y, z) = (p[0], p[1], p[2]);
                     for i in 0..3 {
                         p[i] = rotation[i][0] * x

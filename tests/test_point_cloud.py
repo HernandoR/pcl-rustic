@@ -225,6 +225,89 @@ class TestTransform:
             pc.transform(np.eye(2))
 
 
+class TestZeroCopyView:
+    """`view()` hands out zero-copy, read-only, copy-on-write snapshots of
+    the coordinate buffer -- f64/CPU clouds only, since the f32
+    representations are offset-relative and readout must compute."""
+
+    def test_view_is_zero_copy_and_correct(
+        self, medium_xyz: np.ndarray, float64_dtype: None
+    ) -> None:
+        pc = PointCloud.from_xyz(medium_xyz)
+        v = pc.view()
+        assert v.dtype == np.float64 and v.shape == medium_xyz.shape
+        np.testing.assert_array_equal(v, medium_xyz)
+        assert np.shares_memory(v, pc.view())
+        for name, axis in (("x", 0), ("y", 1), ("z", 2)):
+            av = pc.view(name)
+            assert np.shares_memory(v, av)
+            np.testing.assert_array_equal(av, medium_xyz[:, axis])
+
+    def test_view_is_read_only(
+        self, small_xyz: np.ndarray, float64_dtype: None
+    ) -> None:
+        v = PointCloud.from_xyz(small_xyz).view()
+        with pytest.raises(ValueError, match="read-only"):
+            v[0, 0] = 1.0
+
+    def test_view_outlives_the_cloud(
+        self, medium_xyz: np.ndarray, float64_dtype: None
+    ) -> None:
+        import gc
+
+        v = PointCloud.from_xyz(medium_xyz).view()
+        gc.collect()
+        np.testing.assert_array_equal(v, medium_xyz)
+
+    def test_view_is_a_stable_snapshot_under_inplace_mutation(
+        self, medium_xyz: np.ndarray, float64_dtype: None
+    ) -> None:
+        """Copy-on-write: mutating the cloud after taking a view copies the
+        cloud's buffer away; the view neither dangles nor changes."""
+        pc = PointCloud.from_xyz(medium_xyz)
+        snapshot = pc.view()
+        matrix = np.eye(4)
+        matrix[:3, 3] = [1.0, 2.0, 3.0]
+        pc.transform(matrix, inplace=True)
+        np.testing.assert_array_equal(snapshot, medium_xyz)
+        np.testing.assert_allclose(pc.xyz, medium_xyz + [1.0, 2.0, 3.0])
+        assert not np.shares_memory(snapshot, pc.view())
+
+    def test_clone_shares_the_buffer_until_mutation(
+        self, medium_xyz: np.ndarray, float64_dtype: None
+    ) -> None:
+        pc = PointCloud.from_xyz(medium_xyz)
+        cloned = pc.clone()
+        assert np.shares_memory(pc.view(), cloned.view())
+        cloned.transform(np.eye(4), inplace=True)
+        assert not np.shares_memory(pc.view(), cloned.view())
+
+    def test_view_rejects_f32_and_device_clouds(self, small_xyz: np.ndarray) -> None:
+        import pcl_rustic
+
+        # Default dtype is float32: relative storage, no absolute buffer.
+        with pytest.raises(ValueError, match="float64, CPU-resident"):
+            PointCloud.from_xyz(small_xyz).view()
+        gpus = [d for d in pcl_rustic.available_devices() if d != "cpu"]
+        if gpus:
+            pcl_rustic.set_default_dtype("float64")
+            try:
+                pc = PointCloud.from_xyz(small_xyz).to_device(gpus[0])
+                with pytest.raises(ValueError, match="float64, CPU-resident"):
+                    pc.view()
+            finally:
+                pcl_rustic.set_default_dtype("float32")
+
+    def test_view_rejects_unknown_axis_and_empty_cloud(
+        self, small_xyz: np.ndarray, float64_dtype: None
+    ) -> None:
+        pc = PointCloud.from_xyz(small_xyz)
+        with pytest.raises(ValueError, match="'xyz', 'x', 'y', or 'z'"):
+            pc.view("intensity")
+        with pytest.raises(KeyError):
+            PointCloud().view()
+
+
 class TestVoxelDownsample:
     def test_reduces_point_count(self, medium_xyz: np.ndarray) -> None:
         pc = PointCloud.from_xyz(medium_xyz)

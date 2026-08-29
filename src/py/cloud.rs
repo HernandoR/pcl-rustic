@@ -248,6 +248,29 @@ impl PyPointCloud {
         })
     }
 
+    /// Zero-copy, read-only `(n, 3)` float64 view of the coordinate buffer.
+    /// Only a CPU-resident float64 cloud has an absolute buffer to point a
+    /// view at; the f32 representations store values *relative* to the
+    /// cloud's offset, so their readout inherently computes and cannot be a
+    /// view. The wrapper exposes this as `PointCloud.view(...)` and slices
+    /// per-axis views out of it.
+    fn xyz_view(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if let Some(buf) = self.inner.coords_f64_arc() {
+            return convert::xyz_view_pyobject(py, buf, self.inner.len());
+        }
+        if !self.inner.has_dim("x") {
+            return Err(no_coordinates());
+        }
+        Err(PyValueError::new_err(format!(
+            "zero-copy views require a float64, CPU-resident cloud; this cloud is \
+             dtype='{}', device='{}' (f32-relative storage computes offset + rel at \
+             readout, so there is no absolute buffer to view). Use .xyz for a \
+             copying read, or set_default_dtype('float64') before constructing.",
+            self.inner.dtype().numpy_name(),
+            backend::device_name(self.inner.device()),
+        )))
+    }
+
     #[getter]
     fn device(&self) -> String {
         backend::device_name(self.inner.device()).to_string()

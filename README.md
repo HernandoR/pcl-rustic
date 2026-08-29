@@ -209,6 +209,30 @@ Rounding under `float64` only ever happens through an explicit
 `to_device(...)`. On CPU the f64 representation is absolute and exact: LAS
 round-trips are bit-identical to laspy.
 
+### Zero-copy views
+
+`float64` CPU clouds can hand out their coordinate buffer without copying:
+
+```python
+v = pc.view()        # (n, 3) float64, read-only, zero-copy
+x = pc.view("x")     # strided 1D view of the same buffer
+```
+
+At 10M points this is ~12 us against ~130 ms for the copying `.xyz`. Views
+are **stable snapshots** with copy-on-write semantics: they keep their
+buffer alive independently of the cloud, and any later mutation of the
+cloud (`transform(..., inplace=True)`, coordinate setters) copies the
+cloud's buffer away first -- a view never dangles and never changes
+underneath you. The trade: the first in-place mutation while a view (or a
+`clone()`) shares the buffer pays one copy. Views are read-only; take
+`.copy()` for a mutable array.
+
+The f32 representations cannot offer this honestly: they store values
+*relative* to the cloud's f64 offset (that is what keeps LAS writes exact
+and transforms precise under the f32 default), so a readout necessarily
+computes `offset + rel` -- `view()` raises `ValueError` there, pointing at
+`.xyz` or `set_default_dtype('float64')`.
+
 ## Dtype contract
 
 `PointCloud` is a set of named, equal-length dimensions. Standard dimension

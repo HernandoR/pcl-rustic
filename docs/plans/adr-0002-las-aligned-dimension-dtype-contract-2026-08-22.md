@@ -116,6 +116,15 @@ The "x/y/z are f8" row of the dtype table above becomes the *setter*
 contract (writes are always accepted as f8); the getter dtype follows the
 cloud's coordinate dtype.
 
+*Amended 2026-08-29 (2): zero-copy coordinate views.* The CPU-f64 buffer
+moved behind an `Arc` (copy-on-write), and `PointCloud.view("xyz"|"x"|"y"|
+"z")` returns read-only numpy views over it -- zero-copy, base-tied to the
+allocation, stable snapshots under later mutation (mutating paths go through
+`Arc::make_mut`). This relaxes "getters always copy" for this one explicit,
+opt-in API; `.xyz` and friends keep copying semantics. f32 clouds raise:
+their storage is offset-relative, so readout computes and cannot be a view.
+`PointCloud::clone()` incidentally became O(1) on f64 coordinates.
+
 ### Attribute storage
 
 Non-coordinate dimensions live CPU-side in a dtype-tagged column store

@@ -431,6 +431,37 @@ class PointCloud:
     def xyz(self, value: ArrayLike) -> None:
         self._assign_dim("xyz", value)
 
+    def view(self, name: str = "xyz") -> NDArray[np.float64]:
+        """Zero-copy, read-only view of the coordinates.
+
+        `name` is `"xyz"` (an `(n, 3)` view) or `"x"`/`"y"`/`"z"` (a strided
+        1D view sliced from it). Unlike `.xyz`, nothing is allocated or
+        copied: the array points directly at the cloud's own buffer.
+
+        Semantics (copy-on-write): the view is a *stable snapshot*. It keeps
+        its buffer alive independently of the cloud, and any later mutation
+        of the cloud (`transform(..., inplace=True)`, setters) copies the
+        cloud's coordinates away first -- the view never dangles and never
+        changes underneath you. The flip side: while a view exists, the
+        next in-place mutation pays one buffer copy.
+
+        Only available for float64, CPU-resident clouds: the f32
+        representations store values relative to the cloud's offset, so
+        their readout computes `offset + rel` and cannot be a view. Raises
+        `ValueError` otherwise (and `KeyError` if there are no coordinates).
+        Take `.copy()` if you need a writable array.
+        """
+        arr = self._inner.xyz_view()
+        if name == "xyz":
+            return arr
+        try:
+            axis = {"x": 0, "y": 1, "z": 2}[name]
+        except KeyError:
+            raise ValueError(
+                f"view() takes 'xyz', 'x', 'y', or 'z', got {name!r}"
+            ) from None
+        return arr[:, axis]
+
     # -- torch interop --------------------------------------------------
 
     def to_torch(self, name: str | None = None) -> Any:
