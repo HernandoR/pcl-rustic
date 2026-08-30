@@ -48,8 +48,11 @@ Fairness notes -- read these before quoting any number
   above. Open3D's GPU column uses the tensor API (`open3d.t`) on CUDA, so it
   exercises a different Open3D code path than the legacy-API CPU rows; its
   `.numpy()` on a CPU tensor is a zero-copy view while pcl-rustic's `.xyz`
-  always allocates and copies, so pcl-rustic is charged for work Open3D is
-  not. Positions are float32 in every engine (pcl-rustic's default dtype).
+  always allocates and copies. Positions are float32 in the four base rows
+  (pcl-rustic's default dtype). The fifth row, `pcl-rustic[cpu f64 view]`,
+  is the true zero-copy-for-zero-copy comparison against `open3d[cpu]`:
+  float64 CPU cloud, in-place op, readout via `view()` -- the one
+  configuration where neither engine copies its result.
 """
 
 from __future__ import annotations
@@ -68,6 +71,7 @@ from pcl_rustic import (
     PointCloud,
     available_devices,
     get_default_dtype,
+    set_default_dtype,
 )
 
 o3d = pytest.importorskip("open3d", reason="open3d not installed")
@@ -349,7 +353,20 @@ def test_vs_laspy_read(tmp_path: Path) -> None:
     ours, ours_xyz = _timed(lambda: PointCloud.read(str(path)).xyz)
     theirs, theirs_xyz = _timed(theirs_op)
 
+    # The zero-copy pipeline: read at float64 (CPU-resident) and hand out a
+    # view instead of a copying .xyz. The view keeps its cloud's buffer
+    # alive, so the temporary cloud may be dropped.
+    previous = get_default_dtype()
+    set_default_dtype("float64")
+    try:
+        ours_view, ours_view_xyz = _timed(lambda: PointCloud.read(str(path)).view())
+    finally:
+        set_default_dtype(previous)
+
     _row("LAS read + xyz", IO_POINTS, ours, theirs, "laspy ")
+    _row("LAS read + view (f64)", IO_POINTS, ours_view, theirs, "laspy ")
+    # f64/CPU is the exact path: bit-identical to laspy, via the view too.
+    assert float(np.abs(ours_view_xyz - theirs_xyz).max()) == 0.0
     las_scale = 1.0e-3
     max_dev = float(np.abs(np.asarray(ours_xyz, dtype=np.float64) - theirs_xyz).max())
     print(
@@ -416,8 +433,16 @@ def test_vs_laspy_dtype_parity(tmp_path: Path) -> None:
 
 
 def _four_way_engines() -> list[tuple[str, str, str]]:
-    """(label, engine, device) for every combination this host supports."""
-    engines = [("pcl-rustic[cpu]", "pcl", "cpu")]
+    """(label, engine, device) for every combination this host supports.
+
+    `pcl64` is the zero-copy configuration: float64 CPU cloud whose readout
+    is a `view()` rather than a copying `.xyz`, matching Open3D's zero-copy
+    `.numpy()` semantics on the result side.
+    """
+    engines = [
+        ("pcl-rustic[cpu]", "pcl", "cpu"),
+        ("pcl-rustic[cpu f64 view]", "pcl64", "cpu"),
+    ]
     gpus = [d for d in available_devices() if d != "cpu"]
     if gpus:
         engines.append((f"pcl-rustic[{gpus[0]}]", "pcl", gpus[0]))
@@ -425,6 +450,16 @@ def _four_way_engines() -> list[tuple[str, str, str]]:
     if o3c.cuda.is_available():
         engines.append(("open3d[cuda]", "o3d", "CUDA:0"))
     return engines
+
+
+def _pcl64_cloud(xyz: np.ndarray) -> PointCloud:
+    """A float64 (hence CPU-resident) cloud, restoring the ambient default."""
+    previous = get_default_dtype()
+    set_default_dtype("float64")
+    try:
+        return PointCloud.from_xyz(xyz)
+    finally:
+        set_default_dtype(previous)
 
 
 def _o3d_t_cloud(xyz: np.ndarray, device: str):
@@ -440,7 +475,7 @@ def _e2e_report(op: str, n: int, results: list[tuple[str, float]]) -> None:
     print(f"{op} end-to-end   n={n:>11,}   (op + host materialization)")
     for label, secs in results:
         vs = f"  {base / secs:5.2f}x vs open3d[cpu]" if base is not None else ""
-        print(f"  {label:<22} {secs:8.3f}s  {n / secs:>15,.0f} pts/s{vs}")
+        print(f"  {label:<26} {secs:8.3f}s  {n / secs:>15,.0f} pts/s{vs}")
 
 
 @pytest.mark.parametrize("n_points", POINT_COUNTS)
@@ -457,6 +492,18 @@ def test_four_way_transform_end_to_end(n_points: int) -> None:
 
         return op
 
+    def pcl64_op():
+        pc = _pcl64_cloud(xyz)
+
+        # Zero-copy readout: view() materializes nothing. The full view is
+        # a temporary dropped inside the op (only a one-row copy escapes),
+        # so the next iteration's in-place transform is not forced through
+        # a copy-on-write split by a still-live view.
+        def op() -> np.ndarray:
+            return pc.transform(matrix, inplace=True).view()[:1].copy()
+
+        return op
+
     def o3d_op(device: str):
         pcd = _o3d_t_cloud(xyz, device)
         t = o3c.Tensor(matrix, device=o3c.Device(device))
@@ -468,10 +515,11 @@ def test_four_way_transform_end_to_end(n_points: int) -> None:
 
         return op
 
+    ops = {"pcl": pcl_op, "o3d": o3d_op}
     results = []
     for label, engine, device in _four_way_engines():
-        secs, out = _timed(pcl_op(device) if engine == "pcl" else o3d_op(device))
-        assert out.shape == (n_points, 3)
+        secs, out = _timed(pcl64_op() if engine == "pcl64" else ops[engine](device))
+        assert out.ndim == 2 and out.shape[1] == 3
         results.append((label, secs))
 
     _e2e_report("transform (4x4)", n_points, results)
@@ -494,6 +542,18 @@ def test_four_way_voxel_end_to_end(n_points: int) -> None:
 
         return op
 
+    def pcl64_op():
+        pc = _pcl64_cloud(xyz)
+
+        # The result is a fresh f64/CPU cloud each call, so its view() is
+        # zero-copy with no copy-on-write interaction across iterations.
+        def op() -> np.ndarray:
+            return pc.voxel_downsample(
+                VOXEL_SIZE, strategy=DownsampleStrategy.NEAREST_TO_CENTROID
+            ).view()
+
+        return op
+
     def o3d_op(device: str):
         pcd = _o3d_t_cloud(xyz, device)
 
@@ -502,10 +562,11 @@ def test_four_way_voxel_end_to_end(n_points: int) -> None:
 
         return op
 
+    ops = {"pcl": pcl_op, "o3d": o3d_op}
     results = []
     counts = {}
     for label, engine, device in _four_way_engines():
-        secs, out = _timed(pcl_op(device) if engine == "pcl" else o3d_op(device))
+        secs, out = _timed(pcl64_op() if engine == "pcl64" else ops[engine](device))
         counts[label] = out.shape[0]
         results.append((label, secs))
 

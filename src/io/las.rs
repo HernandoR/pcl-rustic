@@ -404,8 +404,10 @@ fn get_f64(cloud: &PointCloud, name: &str, i: usize) -> f64 {
 
 pub fn write(cloud: &PointCloud, path: &str) -> Result<()> {
     let n = cloud.len();
+    // Zero-copy for CPU-f64 clouds; materializes only when the
+    // representation forces it.
     let coords = cloud
-        .coords_f64()
+        .coords_f64_cow()
         .ok_or_else(|| Error::value("point cloud has no coordinates to write"))?;
 
     let format = select_format(cloud)?;

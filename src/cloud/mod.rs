@@ -296,6 +296,18 @@ impl PointCloud {
         }
     }
 
+    /// Absolute f64 coordinates as a `Cow`: borrowed straight from the
+    /// cloud's buffer when it is CPU-f64 (zero-copy), materialized
+    /// otherwise. The single accessor every read-only consumer (file
+    /// writers, voxel grouping) should use, so the copy only ever happens
+    /// when the representation forces it.
+    pub fn coords_f64_cow(&self) -> Option<std::borrow::Cow<'_, [f64]>> {
+        match self.coords.as_ref()? {
+            Coords::CpuF64(v) => Some(std::borrow::Cow::Borrowed(v.as_slice())),
+            Coords::CpuF32(_) | Coords::Device(_) => self.coords_f64().map(std::borrow::Cow::Owned),
+        }
+    }
+
     /// Reads a device tensor's relative-f32 buffer back to host.
     fn device_rel(tensor: &Tensor<B, 2>) -> Vec<f32> {
         tensor
