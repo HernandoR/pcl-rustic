@@ -285,22 +285,13 @@ impl PointCloud {
         }
     }
 
-    /// Borrows the coordinate buffer without copying. `None` when the cloud
-    /// has no coordinates *or* holds a relative representation (where no
-    /// contiguous absolute-f64 buffer exists); callers must fall back to
-    /// [`Self::coords_f64`].
-    pub fn coords_f64_slice(&self) -> Option<&[f64]> {
-        match self.coords.as_ref()? {
-            Coords::CpuF64(v) => Some(v.as_slice()),
-            Coords::CpuF32(_) | Coords::Device(_) => None,
-        }
-    }
-
     /// Absolute f64 coordinates as a `Cow`: borrowed straight from the
     /// cloud's buffer when it is CPU-f64 (zero-copy), materialized
     /// otherwise. The single accessor every read-only consumer (file
     /// writers, voxel grouping) should use, so the copy only ever happens
-    /// when the representation forces it.
+    /// when the representation forces it. (Replaced the old
+    /// `coords_f64_slice`, whose callers all carried the same
+    /// slice-or-materialize fallback by hand.)
     pub fn coords_f64_cow(&self) -> Option<std::borrow::Cow<'_, [f64]>> {
         match self.coords.as_ref()? {
             Coords::CpuF64(v) => Some(std::borrow::Cow::Borrowed(v.as_slice())),
