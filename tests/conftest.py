@@ -2,8 +2,48 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
+import pcl_rustic as pcl
 import pytest
+
+
+def resolve_bench_device() -> str:
+    """The device benchmark modules pin clouds to, from `PCL_BENCH_DEVICE`.
+
+    `cpu` / an explicit device name select that device; `gpu` selects the
+    first available non-cpu device and *skips* (rather than silently running
+    on cpu) when there is none -- a GPU benchmark that quietly measures the
+    CPU is exactly the failure mode this suite already had once. Unset falls
+    back to `default_device()`.
+    """
+    requested = os.environ.get("PCL_BENCH_DEVICE", "")
+    if not requested:
+        return pcl.default_device()
+    if requested == "gpu":
+        gpus = [d for d in pcl.available_devices() if d != "cpu"]
+        if not gpus:
+            # Called at module scope by the bench modules, so the whole
+            # module skips rather than erroring at collection.
+            pytest.skip(
+                "PCL_BENCH_DEVICE=gpu but no GPU device is available",
+                allow_module_level=True,
+            )
+        return gpus[0]
+    return requested
+
+
+@pytest.fixture
+def float64_dtype():
+    """Pin the default coordinate dtype to float64 for one test, restoring
+    the previous value afterwards. For tests that assert exact f64 fidelity
+    (laspy parity, lossless round-trips), which the float32 default
+    intentionally trades away."""
+    previous = pcl.get_default_dtype()
+    pcl.set_default_dtype("float64")
+    yield
+    pcl.set_default_dtype(previous)
 
 
 @pytest.fixture

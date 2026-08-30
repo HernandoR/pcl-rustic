@@ -10,6 +10,38 @@ use numpy::{
 };
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
+use std::sync::Arc;
+
+/// Base object for zero-copy coordinate views: holds an `Arc` clone of the
+/// cloud's f64 buffer, so the numpy array's memory stays alive however long
+/// the view outlives the cloud, and the cloud's own mutations copy-on-write
+/// away from it rather than into it.
+#[pyclass(name = "_CoordsOwner", frozen)]
+pub struct CoordsOwner(#[allow(dead_code)] Arc<Vec<f64>>);
+
+/// Builds a read-only, zero-copy `(n, 3)` f8 numpy view over the cloud's
+/// shared coordinate buffer. Read-only because the buffer may be shared
+/// with the cloud itself and with other views: writes through a view would
+/// alias unpredictably (before/after a copy-on-write split), so mutation
+/// stays with the cloud's own API.
+pub fn xyz_view_pyobject(py: Python<'_>, buf: Arc<Vec<f64>>, n: usize) -> PyResult<Py<PyAny>> {
+    debug_assert_eq!(buf.len(), n * 3);
+    let view = numpy::ndarray::ArrayView2::from_shape((n, 3), &buf[..])
+        .expect("coordinate buffer always has exactly 3n elements");
+    let owner = Bound::new(py, CoordsOwner(Arc::clone(&buf)))?;
+    // SAFETY: `owner` holds an `Arc` to the same allocation `view` borrows,
+    // and is registered as the numpy array's base object, so the data
+    // outlives the array. The buffer behind a shared `Arc<Vec>` is never
+    // reallocated: every mutating path goes through `Arc::make_mut`, which
+    // replaces the allocation rather than growing it.
+    let array = unsafe { PyArray2::borrow_from_array(&view, owner.into_any()) };
+    // Clear WRITEABLE (numpy arrays default to writable even over borrowed
+    // data); readers who need a mutable array take a .copy() explicitly.
+    unsafe {
+        (*array.as_array_ptr()).flags &= !numpy::npyffi::NPY_ARRAY_WRITEABLE;
+    }
+    Ok(array.into_any().unbind())
+}
 
 /// Downcasts `obj` to a 1D numpy array of exactly dtype `T`, or raises a
 /// `TypeError` naming the dtype the caller must supply.
@@ -186,6 +218,14 @@ pub fn xyz_to_pyobject(py: Python<'_>, flat: Vec<f64>, n: usize) -> Py<PyAny> {
     PyArray2::from_owned_array(py, array).into_any().unbind()
 }
 
+/// Builds a fresh `(n, 3)` f4 numpy array from row-major data (the readout
+/// for float32-dtype clouds).
+pub fn xyz32_to_pyobject(py: Python<'_>, flat: Vec<f32>, n: usize) -> Py<PyAny> {
+    let array = numpy::ndarray::Array2::from_shape_vec((n, 3), flat)
+        .expect("flat xyz buffer always has exactly 3n elements");
+    PyArray2::from_owned_array(py, array).into_any().unbind()
+}
+
 /// Reads a 1D f8 numpy array (`set_dim("x"/"y"/"z", ...)`).
 pub fn axis_from_pyobject(obj: &Bound<PyAny>) -> PyResult<Vec<f64>> {
     Ok(as_array1::<f64>(obj, "float64")?
@@ -196,6 +236,10 @@ pub fn axis_from_pyobject(obj: &Bound<PyAny>) -> PyResult<Vec<f64>> {
 }
 
 pub fn axis_to_pyobject(py: Python<'_>, values: Vec<f64>) -> Py<PyAny> {
+    values.into_pyarray(py).into_any().unbind()
+}
+
+pub fn axis32_to_pyobject(py: Python<'_>, values: Vec<f32>) -> Py<PyAny> {
     values.into_pyarray(py).into_any().unbind()
 }
 

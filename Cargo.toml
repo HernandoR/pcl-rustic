@@ -59,7 +59,11 @@ rand_chacha = "0.9"
 #   one compiles cleanly but overflows the stack of an internal cubecl worker
 #   thread on tall matmuls (a [N,3]x[3,3] f32 matmul aborts for N >= ~5.6M;
 #   N = 5M is fine). Reproduces on burn 0.21.0 and 0.22.0-pre.2. Upstream:
-#   tracel-ai/burn#5419.
+#   tracel-ai/burn#5419, fixed by tracel-ai/burn#5423 (merged 2026-08-26).
+#   We still keep `flex`: the fix is unreleased (newest is 0.22.0-pre.3, cut
+#   2026-08-25, a day before the merge), and the repaired CPU path is ~3.4s on
+#   the [10M,3] workload `flex` does in 0.22s. See src/backend.rs for the full
+#   evaluation and the conditions for revisiting.
 # - one wgpu flavour, chosen per target because burn-dispatch's `metal`,
 #   `vulkan`, and `webgpu` features are mutually exclusive. Enabling two does
 #   not fail the build: burn-dispatch's build.rs emits a `cargo:warning` and

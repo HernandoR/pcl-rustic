@@ -14,7 +14,14 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike, NDArray
 
 from . import _core
-from ._core import DownsampleStrategy, available_devices, default_device
+from ._core import (
+    DownsampleStrategy,
+    available_devices,
+    default_device,
+    get_default_dtype,
+)
+from ._core import device_report as _device_report
+from ._core import set_default_dtype as _set_default_dtype
 
 __version__ = "0.1.0"
 
@@ -24,10 +31,61 @@ __all__ = [
     "read",
     "available_devices",
     "default_device",
+    "device_report",
+    "set_default_dtype",
+    "get_default_dtype",
     "STANDARD_DIMENSIONS",
 ]
 
+
+def set_default_dtype(dtype: DTypeLike) -> None:
+    """Set the coordinate dtype for *newly constructed* clouds.
+
+    Torch-style semantics: existing clouds keep the dtype they were created
+    with; only clouds constructed afterwards (including `read`) pick up the
+    new default. Accepts ``"float32"``/``"float64"``, ``np.float32``/
+    ``np.float64``, or anything ``np.dtype`` normalizes to those.
+
+    The default is **float32**: coordinates are stored f32 relative to a
+    per-cloud f64 offset on CPU and GPU alike, so a cloud behaves and reads
+    identically wherever it lives, and coordinate reads skip the f32 -> f64
+    widening pass that dominates GPU materialization. Choose ``float64``
+    when laspy-exact absolute coordinates matter (e.g. UTM-scale surveying):
+    CPU-resident float64 clouds hold absolute f64 and LAS round-trips are
+    bit-identical to laspy.
+
+    The initial value can also be set with the ``PCL_RUSTIC_DEFAULT_DTYPE``
+    environment variable (read once, at first use; an invalid value warns on
+    stderr and falls back to float32 rather than failing the import).
+    """
+    name = np.dtype(dtype).name
+    _set_default_dtype(name)
+
+
+def device_report() -> dict[str, str]:
+    """Why each device is or is not usable on this machine.
+
+    Maps every device name this build knows about to ``"available"``, ``"not
+    compiled into this build"``, or ``"unavailable: <reason>"``. Unlike
+    :func:`available_devices`, which only reports *that* a GPU is missing,
+    this reports *why* -- so a silent fallback to ``cpu`` on a host that does
+    have a GPU is diagnosable.
+
+    On Linux the usual cause is a missing Vulkan **loader**: NVIDIA's driver
+    installs an ICD at ``/etc/vulkan/icd.d/`` but not ``libvulkan.so.1``, so
+    wgpu enumerates zero adapters. Install the loader (``apt install
+    libvulkan1``) and ``vulkan`` appears.
+
+    Probing a GPU is not free, and the result is not cached here, so call
+    this when diagnosing rather than on a hot path.
+    """
+    return dict(_device_report())
+
+
 #: Standard dimension names and their pinned numpy dtypes, per ADR-0002.
+#: The x/y/z entries are the *setter* contract (writes are always taken as
+#: f64); what reads return follows the cloud's coordinate dtype -- see
+#: `set_default_dtype` and `PointCloud.dtype`.
 STANDARD_DIMENSIONS: dict[str, np.dtype] = {
     "x": np.dtype(np.float64),
     "y": np.dtype(np.float64),
@@ -342,7 +400,7 @@ class PointCloud:
     # -- x/y/z/xyz sugar ------------------------------------------------
 
     @property
-    def x(self) -> NDArray[np.float64]:
+    def x(self) -> NDArray[np.floating]:
         return self._inner.get_dim("x")
 
     @x.setter
@@ -350,7 +408,7 @@ class PointCloud:
         self._assign_dim("x", value)
 
     @property
-    def y(self) -> NDArray[np.float64]:
+    def y(self) -> NDArray[np.floating]:
         return self._inner.get_dim("y")
 
     @y.setter
@@ -358,7 +416,7 @@ class PointCloud:
         self._assign_dim("y", value)
 
     @property
-    def z(self) -> NDArray[np.float64]:
+    def z(self) -> NDArray[np.floating]:
         return self._inner.get_dim("z")
 
     @z.setter
@@ -366,12 +424,43 @@ class PointCloud:
         self._assign_dim("z", value)
 
     @property
-    def xyz(self) -> NDArray[np.float64]:
+    def xyz(self) -> NDArray[np.floating]:
         return self._inner.get_dim("xyz")
 
     @xyz.setter
     def xyz(self, value: ArrayLike) -> None:
         self._assign_dim("xyz", value)
+
+    def view(self, name: str = "xyz") -> NDArray[np.float64]:
+        """Zero-copy, read-only view of the coordinates.
+
+        `name` is `"xyz"` (an `(n, 3)` view) or `"x"`/`"y"`/`"z"` (a strided
+        1D view sliced from it). Unlike `.xyz`, nothing is allocated or
+        copied: the array points directly at the cloud's own buffer.
+
+        Semantics (copy-on-write): the view is a *stable snapshot*. It keeps
+        its buffer alive independently of the cloud, and any later mutation
+        of the cloud (`transform(..., inplace=True)`, setters) copies the
+        cloud's coordinates away first -- the view never dangles and never
+        changes underneath you. The flip side: while a view exists, the
+        next in-place mutation pays one buffer copy.
+
+        Only available for float64, CPU-resident clouds: the f32
+        representations store values relative to the cloud's offset, so
+        their readout computes `offset + rel` and cannot be a view. Raises
+        `ValueError` otherwise (and `KeyError` if there are no coordinates).
+        Take `.copy()` if you need a writable array.
+        """
+        arr = self._inner.xyz_view()
+        if name == "xyz":
+            return arr
+        try:
+            axis = {"x": 0, "y": 1, "z": 2}[name]
+        except KeyError:
+            raise ValueError(
+                f"view() takes 'xyz', 'x', 'y', or 'z', got {name!r}"
+            ) from None
+        return arr[:, axis]
 
     # -- torch interop --------------------------------------------------
 
@@ -389,15 +478,34 @@ class PointCloud:
 
     # -- geometry ---------------------------------------------------------
 
-    def transform(self, matrix: ArrayLike) -> "PointCloud":
+    def transform(self, matrix: ArrayLike, inplace: bool = False) -> "PointCloud":
+        """Apply a 3x3 linear or 4x4 affine transform.
+
+        With `inplace=False` (default) returns a new cloud, leaving this one
+        untouched. With `inplace=True` mutates this cloud and returns it
+        (Open3D-style, so calls chain): coordinates are rewritten in their
+        existing buffer and attribute dimensions are not cloned, which
+        avoids the dominant costs of the copying path on large clouds.
+        """
         arr = _coerce(matrix, np.float64)
+        if inplace:
+            self._inner.transform_inplace(arr)
+            return self
         return self._wrap(self._inner.transform(arr))
 
     def rigid_transform(
-        self, rotation: ArrayLike, translation: ArrayLike
+        self,
+        rotation: ArrayLike,
+        translation: ArrayLike,
+        inplace: bool = False,
     ) -> "PointCloud":
+        """Apply a rotation (3x3) and translation (length 3). `inplace` as in
+        `transform`."""
         rot = _coerce(rotation, np.float64)
         trans = _coerce(translation, np.float64)
+        if inplace:
+            self._inner.rigid_transform_inplace(rot, trans)
+            return self
         return self._wrap(self._inner.rigid_transform(rot, trans))
 
     def voxel_downsample(
@@ -414,8 +522,21 @@ class PointCloud:
     def device(self) -> str:
         return self._inner.device
 
+    @property
+    def dtype(self) -> np.dtype:
+        """The coordinate dtype (`float32` or `float64`) this cloud was
+        created with; decides the dtype `x`/`y`/`z`/`xyz` reads return."""
+        return np.dtype(self._inner.dtype)
+
     def to_device(self, device: str) -> "PointCloud":
         return self._wrap(self._inner.to_device(device))
+
+    def synchronize(self) -> None:
+        """Block until queued device ops on this cloud have executed,
+        without reading data back. GPU ops run asynchronously, so timing an
+        op alone measures submission; `op` + `synchronize()` measures
+        compute, excluding readback/materialization. No-op on CPU."""
+        self._inner.synchronize()
 
     # -- I/O, misc ------------------------------------------------------
 

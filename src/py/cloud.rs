@@ -2,7 +2,7 @@
 
 use crate::backend;
 use crate::cloud::voxel::DownsampleStrategy;
-use crate::cloud::PointCloud;
+use crate::cloud::{CoordDtype, PointCloud};
 use crate::io::ColumnMap;
 use crate::py::convert;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
@@ -81,23 +81,34 @@ impl PyPointCloud {
     }
 
     fn get_dim(&self, py: Python<'_>, name: &str) -> PyResult<Py<PyAny>> {
+        // Coordinate reads follow the cloud's dtype: an f32 cloud hands out
+        // float32 arrays, skipping the f32 -> f64 widening pass entirely.
+        let axis = |py: Python<'_>, i: usize| -> PyResult<Py<PyAny>> {
+            Ok(match self.inner.dtype() {
+                CoordDtype::F64 => convert::axis_to_pyobject(
+                    py,
+                    self.inner.axis_f64(i).ok_or_else(no_coordinates)?,
+                ),
+                CoordDtype::F32 => convert::axis32_to_pyobject(
+                    py,
+                    self.inner.axis_f32(i).ok_or_else(no_coordinates)?,
+                ),
+            })
+        };
         match name {
-            "x" => Ok(convert::axis_to_pyobject(
-                py,
-                self.inner.axis_f64(0).ok_or_else(no_coordinates)?,
-            )),
-            "y" => Ok(convert::axis_to_pyobject(
-                py,
-                self.inner.axis_f64(1).ok_or_else(no_coordinates)?,
-            )),
-            "z" => Ok(convert::axis_to_pyobject(
-                py,
-                self.inner.axis_f64(2).ok_or_else(no_coordinates)?,
-            )),
-            "xyz" => {
-                let flat = self.inner.coords_f64().ok_or_else(no_coordinates)?;
-                Ok(convert::xyz_to_pyobject(py, flat, self.inner.len()))
-            }
+            "x" => axis(py, 0),
+            "y" => axis(py, 1),
+            "z" => axis(py, 2),
+            "xyz" => Ok(match self.inner.dtype() {
+                CoordDtype::F64 => {
+                    let flat = self.inner.coords_f64().ok_or_else(no_coordinates)?;
+                    convert::xyz_to_pyobject(py, flat, self.inner.len())
+                }
+                CoordDtype::F32 => {
+                    let flat = self.inner.coords_f32().ok_or_else(no_coordinates)?;
+                    convert::xyz32_to_pyobject(py, flat, self.inner.len())
+                }
+            }),
             _ => {
                 let dim = self
                     .inner
@@ -169,6 +180,17 @@ impl PyPointCloud {
         Ok(Self { inner })
     }
 
+    /// The `inplace=True` path of the Python-level `transform`: mutates this
+    /// cloud instead of building a new one (no dims clone, no coordinate
+    /// allocation). Split from `transform` so each Rust method has one
+    /// receiver and one return type; the Python wrapper dispatches.
+    fn transform_inplace(&mut self, matrix: &Bound<'_, PyAny>) -> PyResult<()> {
+        let (flat, side) = convert::matrix_from_pyobject(matrix)?;
+        self.inner
+            .transform_inplace(&flat, side)
+            .map_err(PyErr::from)
+    }
+
     fn rigid_transform(
         &self,
         rotation: &Bound<'_, PyAny>,
@@ -181,6 +203,19 @@ impl PyPointCloud {
             .rigid_transform(&rotation, &translation)
             .map_err(PyErr::from)?;
         Ok(Self { inner })
+    }
+
+    /// The `inplace=True` path of the Python-level `rigid_transform`.
+    fn rigid_transform_inplace(
+        &mut self,
+        rotation: &Bound<'_, PyAny>,
+        translation: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let rotation = convert::rotation_from_pyobject(rotation)?;
+        let translation = convert::translation_from_pyobject(translation)?;
+        self.inner
+            .rigid_transform_inplace(&rotation, &translation)
+            .map_err(PyErr::from)
     }
 
     #[pyo3(signature = (voxel_size, strategy=0, seed=None))]
@@ -213,9 +248,46 @@ impl PyPointCloud {
         })
     }
 
+    /// Zero-copy, read-only `(n, 3)` float64 view of the coordinate buffer.
+    /// Only a CPU-resident float64 cloud has an absolute buffer to point a
+    /// view at; the f32 representations store values *relative* to the
+    /// cloud's offset, so their readout inherently computes and cannot be a
+    /// view. The wrapper exposes this as `PointCloud.view(...)` and slices
+    /// per-axis views out of it.
+    fn xyz_view(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if let Some(buf) = self.inner.coords_f64_arc() {
+            return convert::xyz_view_pyobject(py, buf, self.inner.len());
+        }
+        if !self.inner.has_dim("x") {
+            return Err(no_coordinates());
+        }
+        Err(PyValueError::new_err(format!(
+            "zero-copy views require a float64, CPU-resident cloud; this cloud is \
+             dtype='{}', device='{}' (f32-relative storage computes offset + rel at \
+             readout, so there is no absolute buffer to view). Use .xyz for a \
+             copying read, or set_default_dtype('float64') before constructing.",
+            self.inner.dtype().numpy_name(),
+            backend::device_name(self.inner.device()),
+        )))
+    }
+
     #[getter]
     fn device(&self) -> String {
         backend::device_name(self.inner.device()).to_string()
+    }
+
+    #[getter]
+    fn dtype(&self) -> String {
+        self.inner.dtype().numpy_name().to_string()
+    }
+
+    /// Blocks until queued device ops on this cloud have executed, without
+    /// reading data back. Benchmarking aid: GPU ops run asynchronously, so
+    /// timing `op` alone measures submission; timing `op` + `synchronize()`
+    /// measures compute without the readback/materialization cost. No-op on
+    /// CPU-resident clouds.
+    fn synchronize(&self) {
+        self.inner.synchronize();
     }
 
     fn clone(&self) -> Self {

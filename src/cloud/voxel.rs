@@ -41,20 +41,13 @@ impl PointCloud {
         }
 
         // Borrow the absolute f64 coordinates without copying when the
-        // cloud is CPU-resident; otherwise materialize once. Either way
-        // the offset is already folded in, so voxel keys need no further
+        // cloud is CPU-f64; otherwise materialize once. Either way the
+        // offset is already folded in, so voxel keys need no further
         // offset arithmetic.
-        let owned_xyz;
-        let xyz: &[f64] = match self.coords_f64_slice() {
-            Some(slice) => slice,
-            None => match self.coords_f64() {
-                Some(v) => {
-                    owned_xyz = v;
-                    &owned_xyz
-                }
-                None => return Ok(self.clone()),
-            },
+        let Some(xyz) = self.coords_f64_cow() else {
+            return Ok(self.clone());
         };
+        let xyz: &[f64] = &xyz;
 
         let n = self.len;
 

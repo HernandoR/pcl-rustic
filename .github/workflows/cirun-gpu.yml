@@ -26,6 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The NVIDIA driver ships a Vulkan ICD (/etc/vulkan/icd.d/nvidia_icd.json)
+      # but not the loader, and wgpu talks to the loader, not the ICD. Without
+      # libvulkan1 the `vulkan` probe finds zero adapters, `default_device()`
+      # degrades to `cpu` (by design, ADR-0001), and this whole job passes
+      # while testing nothing GPU -- which is what it used to do.
+      - name: Install Vulkan loader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1
+
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -52,6 +62,21 @@ jobs:
       - name: Install dependencies and build
         run: |
           uv sync --locked --all-extras --dev
+
+      # Fail loudly if the GPU did not come up, instead of silently running
+      # the suite on `cpu`. `device_report()` prints the adapter-enumeration
+      # error, so a broken runner image is diagnosable from the log alone.
+      - name: Assert GPU is selected
+        run: |
+          uv run python -c '
+          import sys, pcl_rustic as p
+          for name, status in p.device_report().items():
+              print(f"{name}: {status}")
+          default = p.default_device()
+          print(f"default_device() -> {default}")
+          if default == "cpu":
+              sys.exit("FATAL: no GPU device on a GPU runner; see report above")
+          '
 
       - name: Run tests
         run: |

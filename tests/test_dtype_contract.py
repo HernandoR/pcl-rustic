@@ -59,11 +59,76 @@ def test_standard_dim_exact_dtype_round_trip(cloud: PointCloud, name: str) -> No
     np.testing.assert_array_equal(out, value)
 
 
-def test_xyz_dtype_is_always_float64(cloud: PointCloud) -> None:
-    assert cloud.x.dtype == np.float64
-    assert cloud.y.dtype == np.float64
-    assert cloud.z.dtype == np.float64
-    assert cloud.xyz.dtype == np.float64
+def test_xyz_dtype_follows_default_dtype(small_xyz: np.ndarray) -> None:
+    """Coordinate reads return the cloud's dtype, fixed at construction from
+    the global default (float32 unless overridden); writes are always taken
+    as f64 regardless (the setter contract is unchanged)."""
+    import pcl_rustic
+
+    assert pcl_rustic.get_default_dtype() == "float32"
+    cloud32 = PointCloud.from_xyz(small_xyz)
+    assert cloud32.dtype == np.float32
+    for arr in (cloud32.x, cloud32.y, cloud32.z, cloud32.xyz):
+        assert arr.dtype == np.float32
+
+    pcl_rustic.set_default_dtype(np.float64)
+    try:
+        cloud64 = PointCloud.from_xyz(small_xyz)
+        assert cloud64.dtype == np.float64
+        for arr in (cloud64.x, cloud64.y, cloud64.z, cloud64.xyz):
+            assert arr.dtype == np.float64
+        # Torch-style: the existing cloud keeps the dtype it was born with.
+        assert cloud32.dtype == np.float32
+        assert cloud32.xyz.dtype == np.float32
+    finally:
+        pcl_rustic.set_default_dtype(np.float32)
+
+
+def test_float64_dtype_clouds_ingest_on_cpu(
+    small_xyz: np.ndarray, float64_dtype: None
+) -> None:
+    """No accelerator representation can hold f64, so an f64 cloud placed on
+    a GPU at construction would round immediately -- defeating the opt-in.
+    Rounding under f64 dtype must only happen via an explicit to_device."""
+    pc = PointCloud.from_xyz(small_xyz)
+    assert pc.device == "cpu"
+    np.testing.assert_array_equal(pc.xyz, small_xyz)
+
+
+def test_set_default_dtype_rejects_unsupported() -> None:
+    import pcl_rustic
+
+    with pytest.raises(ValueError):
+        pcl_rustic.set_default_dtype(np.int32)
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [("float64", "float64"), ("f32", "float32"), ("bogus", "float32")],
+)
+def test_default_dtype_env_var(env_value: str, expected: str) -> None:
+    """`PCL_RUSTIC_DEFAULT_DTYPE` seeds the default; it is read once at first
+    use, so this needs a fresh interpreter. Invalid values must fall back to
+    float32 with a warning rather than failing the import (ADR-0001 extends
+    the no-panic-at-import rule here)."""
+    import os
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import pcl_rustic; print(pcl_rustic.get_default_dtype())",
+        ],
+        env={**os.environ, "PCL_RUSTIC_DEFAULT_DTYPE": env_value},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc.stdout.strip() == expected
+    if expected != env_value and env_value not in ("f32", "f64"):
+        assert "ignoring invalid PCL_RUSTIC_DEFAULT_DTYPE" in proc.stderr
 
 
 class TestSameKindCoercion:

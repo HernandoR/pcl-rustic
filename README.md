@@ -65,6 +65,13 @@ pc.classification = np.zeros(len(pc), dtype=np.uint8)
 
 pc_down = pc.voxel_downsample(0.15, strategy=DownsampleStrategy.NEAREST_TO_CENTROID)
 print(f"{len(pc):,} -> {len(pc_down):,} points")
+
+# transform / rigid_transform return a new cloud by default; inplace=True
+# mutates and returns the cloud itself (Open3D-style, chains), skipping the
+# attribute-column clone and coordinate allocation the copying path pays.
+T = np.eye(4)
+pc2 = pc.transform(T)            # new cloud
+pc.transform(T, inplace=True)    # mutates pc, returns pc
 ```
 
 ### laspy-style dimension access
@@ -109,6 +116,7 @@ from pcl_rustic import available_devices, default_device
 
 available_devices()  # e.g. ["cpu", "vulkan"] on Linux, ["cpu", "metal"] on macOS
 default_device()     # picks a GPU variant if one initializes, else "cpu"
+device_report()      # why each device is / is not usable -- see below
 
 pc.device                  # -> str
 pc_gpu = pc.to_device("vulkan")
@@ -132,6 +140,99 @@ in `Cargo.toml` instead of being a Cargo feature — see
 Asking for a device from another platform raises `ValueError` ("not compiled
 into this build"); asking for one whose adapter is missing raises `OSError`.
 
+### Linux needs a Vulkan loader
+
+GPU selection degrades to `cpu` rather than raising (ADR-0001), so a host that
+*has* a GPU but cannot initialize it looks exactly like a host that has none.
+On Linux the usual cause is a missing Vulkan **loader**: the NVIDIA driver
+installs an ICD at `/etc/vulkan/icd.d/nvidia_icd.json`, but wgpu talks to
+`libvulkan.so.1`, which ships separately and is absent from most server and
+container images. Without it wgpu enumerates zero adapters.
+
+```console
+$ sudo apt install libvulkan1      # Debian/Ubuntu
+$ sudo dnf install vulkan-loader   # Fedora/RHEL
+```
+
+Use `device_report()` to tell the two cases apart — it surfaces the underlying
+adapter-enumeration error instead of just omitting the device:
+
+```python
+>>> from pcl_rustic import device_report
+>>> device_report()
+{'cpu': 'available',
+ 'metal': 'not compiled into this build',
+ 'vulkan': 'unavailable: panicked at ...: No possible adapter available for '
+           'backend. ... active_backends: Backends(0x0) ...',
+ ...}
+```
+
+`active_backends: Backends(0x0)` with `supported_backends` non-empty is the
+missing-loader signature. Probing is not cached, so call it when diagnosing,
+not on a hot path.
+
+## Coordinate dtype
+
+Coordinates have a process-wide default dtype, torch-style:
+
+```python
+import pcl_rustic
+
+pcl_rustic.get_default_dtype()          # "float32" (the default)
+pcl_rustic.set_default_dtype("float64") # affects clouds constructed afterwards
+pc.dtype                                # np.dtype, fixed at construction
+```
+
+or set the initial value with the `PCL_RUSTIC_DEFAULT_DTYPE` environment
+variable (`float32`/`float64`; read once, at first use; an invalid value
+warns and falls back to `float32` rather than failing the import).
+
+| dtype | storage | reads return | placement at construction |
+|---|---|---|---|
+| `float32` (default) | f32 relative to a per-cloud f64 offset, on CPU and GPU alike | `float32` | `default_device()` (GPU-first) |
+| `float64` | absolute f64 on CPU; GPU is still f32-relative | `float64` | **always CPU** |
+
+`float32` makes CPU and GPU behave identically -- a cloud moves between them
+without re-encoding or precision change -- and coordinate reads skip the
+f32 -> f64 widening pass, which dominated GPU materialization (measured at
+10M points: `.xyz` readback 252 ms -> 125 ms on an A10G, 161 ms -> 17 ms on
+CPU). Internal storage is *relative*, so transforms and LAS writes keep f64
+anchoring regardless; only the absolute values handed to Python quantize to
+the f32 grid. That grid is extent-dependent: ~1e-5 m for a cloud spanning
+hundreds of meters, but **~0.25 m at raw UTM magnitudes (4e6)** -- surveying
+workflows at absolute coordinates should opt into `float64`.
+
+`float64` clouds ingest CPU-resident even when a GPU is the default device:
+no accelerator representation can hold f64, so honoring GPU-first placement
+would round the cloud at construction and silently defeat the opt-in.
+Rounding under `float64` only ever happens through an explicit
+`to_device(...)`. On CPU the f64 representation is absolute and exact: LAS
+round-trips are bit-identical to laspy.
+
+### Zero-copy views
+
+`float64` CPU clouds can hand out their coordinate buffer without copying:
+
+```python
+v = pc.view()        # (n, 3) float64, read-only, zero-copy
+x = pc.view("x")     # strided 1D view of the same buffer
+```
+
+At 10M points this is ~12 us against ~130 ms for the copying `.xyz`. Views
+are **stable snapshots** with copy-on-write semantics: they keep their
+buffer alive independently of the cloud, and any later mutation of the
+cloud (`transform(..., inplace=True)`, coordinate setters) copies the
+cloud's buffer away first -- a view never dangles and never changes
+underneath you. The trade: the first in-place mutation while a view (or a
+`clone()`) shares the buffer pays one copy. Views are read-only; take
+`.copy()` for a mutable array.
+
+The f32 representations cannot offer this honestly: they store values
+*relative* to the cloud's f64 offset (that is what keeps LAS writes exact
+and transforms precise under the f32 default), so a readout necessarily
+computes `offset + rel` -- `view()` raises `ValueError` there, pointing at
+`.xyz` or `set_default_dtype('float64')`.
+
 ## Dtype contract
 
 `PointCloud` is a set of named, equal-length dimensions. Standard dimension
@@ -139,7 +240,7 @@ names carry pinned numpy dtypes, identical to laspy:
 
 | Dimension | numpy dtype | Notes |
 |---|---|---|
-| `x`, `y`, `z` | `f8` | scaled coordinates |
+| `x`, `y`, `z` | `f4` / `f8` | follows the coordinate dtype (below); writes always accepted as `f8` |
 | `intensity` | `u2` | |
 | `return_number` | `u1` | unpacked from the LAS bit field |
 | `number_of_returns` | `u1` | unpacked |

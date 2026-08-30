@@ -93,6 +93,38 @@ was measured to be the dominant cost of every coordinate read (an f32 -> f64
 widening pass over the whole cloud) *and* the source of a 3.03e-5 m deviation
 from laspy. Holding f64 on CPU removed both at once.
 
+*Amended 2026-08-29: configurable coordinate dtype.* Once the Vulkan backend
+actually initialized (it had been silently failing; see the device_report
+work), the widening pass returned as the dominant cost of GPU readback
+(~250 ms of a 260 ms `.xyz` at 10M points). Coordinates now carry a
+process-wide default dtype, torch-style (`set_default_dtype`,
+`PCL_RUSTIC_DEFAULT_DTYPE`), fixed per cloud at construction:
+
+- **f32 (default):** storage is f32-relative-to-offset on CPU *and* GPU (the
+  representations are identical, so device moves copy the buffer as-is), and
+  reads return float32 -- no widening pass, half the copy volume. Absolute
+  values quantize to the f32 grid at readout (extent-dependent; ~0.25 m at
+  raw UTM magnitude), while internal anchoring, transforms, and LAS writes
+  stay f64-exact through the offset.
+- **f64 (opt-in):** the pre-amendment behavior -- absolute f64 on CPU,
+  bit-identical to laspy. f64 clouds ingest CPU-resident even under a GPU
+  default device, because the device representation is f32 and honoring
+  GPU-first placement would round at construction; rounding under f64 only
+  happens through an explicit `to_device`.
+
+The "x/y/z are f8" row of the dtype table above becomes the *setter*
+contract (writes are always accepted as f8); the getter dtype follows the
+cloud's coordinate dtype.
+
+*Amended 2026-08-29 (2): zero-copy coordinate views.* The CPU-f64 buffer
+moved behind an `Arc` (copy-on-write), and `PointCloud.view("xyz"|"x"|"y"|
+"z")` returns read-only numpy views over it -- zero-copy, base-tied to the
+allocation, stable snapshots under later mutation (mutating paths go through
+`Arc::make_mut`). This relaxes "getters always copy" for this one explicit,
+opt-in API; `.xyz` and friends keep copying semantics. f32 clouds raise:
+their storage is offset-relative, so readout computes and cannot be a view.
+`PointCloud::clone()` incidentally became O(1) on f64 coordinates.
+
 ### Attribute storage
 
 Non-coordinate dimensions live CPU-side in a dtype-tagged column store

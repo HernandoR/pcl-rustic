@@ -187,8 +187,10 @@ pub fn write(
         .collect();
     writer.write_record(&header)?;
 
+    // Zero-copy for CPU-f64 clouds; materializes only when the
+    // representation forces it.
     let xyz = cloud
-        .coords_f64()
+        .coords_f64_cow()
         .expect("has_dim(\"x\") implies coordinates exist");
     for i in 0..cloud.len() {
         let row: Vec<String> = dim_names

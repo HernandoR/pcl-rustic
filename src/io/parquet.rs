@@ -91,8 +91,10 @@ pub fn write(cloud: &PointCloud, path: &str, columns: Option<&ColumnMap>) -> Res
         return Err(Error::value("point cloud has no coordinates to write"));
     }
     let n = cloud.len();
+    // Zero-copy for CPU-f64 clouds; materializes only when the
+    // representation forces it.
     let xyz = cloud
-        .coords_f64()
+        .coords_f64_cow()
         .expect("has_dim(\"x\") implies coordinates exist");
 
     let mut fields = Vec::new();
